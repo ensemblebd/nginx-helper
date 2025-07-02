@@ -124,6 +124,7 @@
 			nginx_show_option( 'enable_map' );
 			nginx_show_option( 'enable_log' );
 			nginx_show_option( 'enable_purge' );
+			nginx_show_option( 'cloudflare_apo' );
 
 		}
 	);

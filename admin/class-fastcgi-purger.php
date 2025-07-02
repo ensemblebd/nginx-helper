@@ -194,6 +194,7 @@ class FastCGI_Purger extends Purger {
 		$this->log( '* Purged Everything!' );
 		$this->log( '* * * * *' );
 
+		$this->cloudflare_purge_all();
 		/**
 		 * Fire an action after the FastCGI cache has been purged.
 		 *

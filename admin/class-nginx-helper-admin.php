@@ -292,7 +292,12 @@ class Nginx_Helper_Admin {
 			'redis_socket_enabled_by_constant' => 0,
 			'redis_acl_enabled_by_constant'    => 0,
 			'preload_cache'                    => 0,
-			'is_cache_preloaded'               => 0
+			'is_cache_preloaded'               => 0,
+			'cloudflare_apo'                   => 0,
+			'cloudflare_apo_async'             => 0,
+			'cloudflare_zone_id'               => '',
+			'cloudflare_api_token'             => '',
+			'cloudflare_ignore_urls'           => array('/feed', '/amp', '/wp-json'),
 		);
 		
 	}
