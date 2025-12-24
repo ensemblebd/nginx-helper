@@ -117,6 +117,10 @@ class Nginx_Helper_Admin {
 								'menu_title' => __( 'Cloudflare', 'nginx-helper' ),
 								'menu_slug'  => 'cloudflare',
 						),
+						'preload' => array(
+							'menu_title' => __( 'Preload', 'nginx-helper' ),
+							'menu_slug'  => 'preload',
+						),
 				)
 		);
 	}
@@ -142,7 +146,9 @@ class Nginx_Helper_Admin {
 		 * class.
 		 */
 
-		if ( 'settings_page_nginx' !== $hook ) {
+		// Handle both regular and network admin pages.
+		$valid_hooks = array( 'settings_page_nginx', 'settings_page_nginx-network' );
+		if ( ! in_array( $hook, $valid_hooks, true ) ) {
 			return;
 		}
 
@@ -172,14 +178,43 @@ class Nginx_Helper_Admin {
 		 * class.
 		 */
 
-		if ( 'settings_page_nginx' !== $hook ) {
+		// Handle both regular and network admin pages.
+		$valid_hooks = array( 'settings_page_nginx', 'settings_page_nginx-network' );
+		if ( ! in_array( $hook, $valid_hooks, true ) ) {
 			return;
 		}
 
-		wp_enqueue_script( $this->plugin_name, plugin_dir_url( __FILE__ ) . 'js/nginx-helper-admin.js', array( 'jquery' ), $this->version, false );
+		// Enqueue jQuery UI Tabs and Dialog (bundled with WordPress).
+		wp_enqueue_script( 'jquery-ui-tabs' );
+		wp_enqueue_script( 'jquery-ui-dialog' );
+		wp_enqueue_style( 'wp-jquery-ui-dialog' );
+
+		// Enqueue List.js for table search/filter/pagination.
+		wp_enqueue_script(
+			'list-js',
+			plugin_dir_url( __FILE__ ) . 'js/vendor/list.min.js',
+			array(),
+			'2.3.1',
+			true
+		);
+
+		$rand_hash = rand( 1000, 9999 );
+		// Load main script in footer (true) to ensure all dependencies are ready.
+		wp_enqueue_script( $this->plugin_name, plugin_dir_url( __FILE__ ) . 'js/nginx-helper-admin.js', array( 'jquery', 'jquery-ui-tabs', 'jquery-ui-dialog', 'list-js' ), $this->version . $rand_hash, true );
 
 		$do_localize = array(
 			'purge_confirm_string' => esc_html__( 'Purging entire cache is not recommended. Would you like to continue?', 'nginx-helper' ),
+			'preload_nonce'        => wp_create_nonce( 'nginx_helper_preload' ),
+			'ajax_url'             => admin_url( 'admin-ajax.php' ),
+			'i18n'                 => array(
+				'loading'          => esc_html__( 'Loading...', 'nginx-helper' ),
+				'error'            => esc_html__( 'An error occurred.', 'nginx-helper' ),
+				'confirm_stop'     => esc_html__( 'Are you sure you want to stop the preload?', 'nginx-helper' ),
+				'rescan_complete'  => esc_html__( 'Rescan complete.', 'nginx-helper' ),
+				'preload_started'  => esc_html__( 'Preload started.', 'nginx-helper' ),
+				'preload_stopped'  => esc_html__( 'Preload stopped.', 'nginx-helper' ),
+				'preload_complete' => esc_html__( 'Preload complete!', 'nginx-helper' ),
+			),
 		);
 		wp_localize_script( $this->plugin_name, 'nginx_helper', $do_localize );
 
@@ -312,6 +347,17 @@ class Nginx_Helper_Admin {
 			'is_cache_preloaded'               => 0,
 			'roles_with_purge_cap'             => array(),
 			'purge_woo_products'               => 0,
+			// Preload tab settings.
+			'preload_mode'                     => 'off',
+			'preload_cron_schedule'            => '0 3 * * *',
+			'preload_user_agent'               => 'NginxHelper-Preloader/1.0',
+			'preload_custom_headers'           => '',
+			'preload_cache_variants'           => 1,
+			'preload_force_ssl'                => 1,
+			// FastCGI Configuration.
+			'fastcgi_cache_key_template'       => '',
+			'fastcgi_cache_path_root'          => '',
+			'fastcgi_custom_var_values'        => '{}',
 		);
 
 	}
@@ -1304,4 +1350,513 @@ class Nginx_Helper_Admin {
 		wp_safe_redirect( add_query_arg( 'message', 'ec-cleared-url-cache', $path ) );
 		exit;
 	}
+
+
+	
+	/**
+	 * Get the Preload Cache Manager instance.
+	 *
+	 * @return Preload_Cache_Manager
+	 */
+	public function get_preload_manager() {
+		if ( ! class_exists( 'Preload_Cache_Manager' ) ) {
+			require_once plugin_dir_path( __FILE__ ) . 'class-preload-cache-manager.php';
+		}
+		return Preload_Cache_Manager::get_instance();
+	}
+	
+	/**
+	 * AJAX handler: Start preload.
+	 */
+	public function ajax_preload_start() {
+		check_ajax_referer( 'nginx_helper_preload', 'nonce' );
+		
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( array( 'message' => __( 'Permission denied.', 'nginx-helper' ) ) );
+		}
+		
+		$manager = $this->get_preload_manager();
+		$manager->reset_preload();
+		
+		// Check if WP Cron is disabled.
+		if ( defined( 'DISABLE_WP_CRON' ) && DISABLE_WP_CRON ) {
+			// Use async processing.
+			$this->trigger_async_preload();
+		} else {
+			// Schedule immediate cron event.
+			wp_schedule_single_event( time(), 'nginx_helper_preload_batch' );
+		}
+		
+		// Start first batch immediately.
+		$progress = $manager->preload_all_pages( 5 );
+		
+		wp_send_json_success( $progress );
+	}
+	
+	/**
+	 * AJAX handler: Stop preload.
+	 */
+	public function ajax_preload_stop() {
+		check_ajax_referer( 'nginx_helper_preload', 'nonce' );
+		
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( array( 'message' => __( 'Permission denied.', 'nginx-helper' ) ) );
+		}
+		
+		$manager = $this->get_preload_manager();
+		$manager->stop_preload();
+		
+		// Clear any scheduled batch events.
+		$timestamp = wp_next_scheduled( 'nginx_helper_preload_batch' );
+		if ( $timestamp ) {
+			wp_unschedule_event( $timestamp, 'nginx_helper_preload_batch' );
+		}
+		
+		wp_send_json_success( array( 'status' => 'stopped' ) );
+	}
+	
+	/**
+	 * AJAX handler: Get preload progress.
+	 */
+	public function ajax_preload_progress() {
+		check_ajax_referer( 'nginx_helper_preload', 'nonce' );
+		
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( array( 'message' => __( 'Permission denied.', 'nginx-helper' ) ) );
+		}
+		
+		$manager = $this->get_preload_manager();
+		$progress = $manager->get_preload_progress();
+		
+		wp_send_json_success( $progress );
+	}
+	
+	/**
+	 * AJAX handler: Preload single page.
+	 */
+	public function ajax_preload_single() {
+		check_ajax_referer( 'nginx_helper_preload', 'nonce' );
+		
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( array( 'message' => __( 'Permission denied.', 'nginx-helper' ) ) );
+		}
+		
+		$url = isset( $_POST['url'] ) ? sanitize_text_field( wp_unslash( $_POST['url'] ) ) : '';
+		
+		if ( empty( $url ) ) {
+			wp_send_json_error( array( 'message' => __( 'URL is required.', 'nginx-helper' ) ) );
+		}
+		
+		$manager = $this->get_preload_manager();
+		$results = $manager->reset_page( $url );
+		
+		wp_send_json_success( $results );
+	}
+	
+	/**
+	 * AJAX handler: Toggle page enabled status.
+	 */
+	public function ajax_toggle_page() {
+		check_ajax_referer( 'nginx_helper_preload', 'nonce' );
+		
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( array( 'message' => __( 'Permission denied.', 'nginx-helper' ) ) );
+		}
+		
+		$url = isset( $_POST['url'] ) ? sanitize_text_field( wp_unslash( $_POST['url'] ) ) : '';
+		$enabled = isset( $_POST['enabled'] ) ? (bool) $_POST['enabled'] : true;
+		
+		if ( empty( $url ) ) {
+			wp_send_json_error( array( 'message' => __( 'URL is required.', 'nginx-helper' ) ) );
+		}
+		
+		$manager = $this->get_preload_manager();
+		$result = $manager->toggle_page( $url, $enabled );
+		
+		if ( $result ) {
+			wp_send_json_success( array( 'enabled' => $enabled ) );
+		} else {
+			wp_send_json_error( array( 'message' => __( 'Failed to update page status.', 'nginx-helper' ) ) );
+		}
+	}
+	
+	/**
+	 * AJAX handler: Rescan cache status.
+	 */
+	public function ajax_rescan_cache() {
+		check_ajax_referer( 'nginx_helper_preload', 'nonce' );
+		
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( array( 'message' => __( 'Permission denied.', 'nginx-helper' ) ) );
+		}
+		
+		$manager = $this->get_preload_manager();
+		$result = $manager->sync_sitemap_to_snapshot();
+		
+		if ( $result ) {
+			$snapshot = $manager->get_snapshot();
+			wp_send_json_success( array(
+				'last_scan' => $snapshot['last_scan'],
+				'page_count' => count( $snapshot['pages'] ),
+			) );
+		} else {
+			wp_send_json_error( array( 'message' => __( 'Failed to rescan cache status.', 'nginx-helper' ) ) );
+		}
+	}
+	
+	/**
+	 * AJAX handler: Continue preload batch.
+	 */
+	public function ajax_preload_continue() {
+		check_ajax_referer( 'nginx_helper_preload', 'nonce' );
+		
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( array( 'message' => __( 'Permission denied.', 'nginx-helper' ) ) );
+		}
+		
+		$manager = $this->get_preload_manager();
+		
+		if ( ! $manager->is_preload_running() ) {
+			wp_send_json_success( array( 'status' => 'completed' ) );
+			return;
+		}
+		
+		$progress = $manager->preload_all_pages( 5 );
+		
+		wp_send_json_success( $progress );
+	}
+	
+	/**
+	 * Trigger async preload request.
+	 */
+	private function trigger_async_preload() {
+		$url = admin_url( 'admin-ajax.php' );
+		
+		$args = array(
+			'timeout'   => 0.01,
+			'blocking'  => false,
+			'sslverify' => false,
+			'body'      => array(
+				'action' => 'nginx_helper_preload_continue',
+				'nonce'  => wp_create_nonce( 'nginx_helper_preload' ),
+			),
+		);
+		
+		wp_remote_post( $url, $args );
+	}
+	
+	/**
+	 * Handle preload batch via WP Cron.
+	 */
+	public function handle_preload_batch() {
+		$manager = $this->get_preload_manager();
+		
+		if ( ! $manager->is_preload_running() ) {
+			return;
+		}
+		
+		$progress = $manager->preload_all_pages( 10 );
+		
+		// Schedule next batch if not complete.
+		if ( 'running' === $progress['status'] ) {
+			wp_schedule_single_event( time() + 1, 'nginx_helper_preload_batch' );
+		}
+	}
+	
+	/**
+	 * Handle scheduled cron preload.
+	 */
+	public function handle_cron_preload() {
+		$manager = $this->get_preload_manager();
+		
+		// Only run if mode is cron.
+		if ( 'cron' !== $manager->get_preload_mode() ) {
+			return;
+		}
+		
+		// Reset and start fresh.
+		$manager->reset_preload();
+		
+		// Process all pages in batches.
+		do {
+			$progress = $manager->preload_all_pages( 20 );
+		} while ( 'running' === $progress['status'] );
+	}
+	
+	/**
+	 * Preload single page on post publish/edit (reactive mode).
+	 *
+	 * @param int     $post_id Post ID.
+	 * @param WP_Post $post    Post object.
+	 */
+	public function preload_on_post_change( $post_id, $post ) {
+		// Skip autosaves and revisions.
+		if ( wp_is_post_autosave( $post_id ) || wp_is_post_revision( $post_id ) ) {
+			return;
+		}
+		
+		// Only published posts.
+		if ( 'publish' !== $post->post_status ) {
+			return;
+		}
+		
+		$manager = $this->get_preload_manager();
+		
+		// Only in reactive mode.
+		if ( 'reactive' !== $manager->get_preload_mode() ) {
+			return;
+		}
+		
+		$url = get_permalink( $post_id );
+		$relative_url = $manager->get_relative_url( $url );
+		
+		// Preload all variants for this page.
+		$manager->reset_page( $relative_url );
+	}
+	
+	/**
+	 * Preload all pages after full cache purge (reactive mode).
+	 */
+	public function preload_after_purge_all() {
+		$manager = $this->get_preload_manager();
+		
+		// Only in reactive mode.
+		if ( 'reactive' !== $manager->get_preload_mode() ) {
+			return;
+		}
+		
+		// Reset and start preload.
+		$manager->reset_preload();
+		
+		// Check if WP Cron is disabled.
+		if ( defined( 'DISABLE_WP_CRON' ) && DISABLE_WP_CRON ) {
+			// Use async processing.
+			$this->trigger_async_preload();
+		} else {
+			// Schedule immediate cron event.
+			wp_schedule_single_event( time(), 'nginx_helper_preload_batch' );
+		}
+	}
+	
+	/**
+	 * Display admin notice when preload is running.
+	 */
+	public function display_preload_notice() {
+		$manager = $this->get_preload_manager();
+		
+		if ( ! $manager->is_preload_running() ) {
+			return;
+		}
+		
+		$progress = $manager->get_preload_progress();
+		$settings_url = admin_url( 'options-general.php?page=nginx&tab=preload' );
+		
+		if ( is_multisite() ) {
+			$settings_url = network_admin_url( 'settings.php?page=nginx&tab=preload' );
+		}
+		
+		?>
+		<div class="notice notice-info nginx-preload-admin-notice">
+			<p>
+				<strong><?php esc_html_e( 'Nginx Helper:', 'nginx-helper' ); ?></strong>
+				<?php
+				printf(
+					/* translators: 1: processed items, 2: total items */
+					esc_html__( 'Cache preload in progress (%1$d / %2$d items).', 'nginx-helper' ),
+					intval( $progress['processed_items'] ),
+					intval( $progress['total_items'] )
+				);
+				?>
+				<a href="<?php echo esc_url( $settings_url ); ?>"><?php esc_html_e( 'View Status', 'nginx-helper' ); ?></a>
+			</p>
+		</div>
+		<?php
+	}
+
+	/**
+	 * AJAX handler: Get URL diagnostics.
+	 */
+	public function ajax_get_url_diagnostics() {
+		check_ajax_referer( 'nginx_helper_preload', 'nonce' );
+		
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( array( 'message' => __( 'Permission denied.', 'nginx-helper' ) ) );
+		}
+		
+		$url = isset( $_POST['url'] ) ? sanitize_text_field( wp_unslash( $_POST['url'] ) ) : '';
+		
+		if ( empty( $url ) ) {
+			wp_send_json_error( array( 'message' => __( 'URL is required.', 'nginx-helper' ) ) );
+		}
+		
+		$manager = $this->get_preload_manager();
+		$full_url = home_url( $url );
+		$variants = $manager->get_all_variant_combinations();
+		$force_ssl = ! empty( $this->options['preload_force_ssl'] );
+		
+		$diagnostics = array();
+		$schemes = $force_ssl ? array( 'https' ) : array( 'https', 'http' );
+		
+		foreach ( $schemes as $scheme ) {
+			$scheme_url = preg_replace( '/^https?:/', $scheme . ':', $full_url );
+			
+			foreach ( $variants as $variant_values ) {
+				$diag = $manager->get_url_diagnostics( $scheme_url, $variant_values );
+				$variant_key = $manager->get_variant_key( $variant_values );
+				
+				$diagnostics[] = array(
+					'variant_label'      => 'default' === $variant_key ? $scheme : $variant_key . ' (' . $scheme . ')',
+					'variant_key'        => $variant_key,
+					'scheme'             => $scheme,
+					'url'                => $diag['url'],
+					'expected_key'       => $diag['expected_key'],
+					'expected_hash'      => $diag['expected_hash'],
+					'expected_path'      => $diag['expected_path'],
+					'file_exists'        => $diag['file_exists'],
+					'actual_key'         => $diag['actual_key'],
+					'key_matches'        => $diag['key_matches'],
+					'file_mtime'         => $diag['file_mtime'] ? date_i18n( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), $diag['file_mtime'] ) : null,
+					'file_size'          => $diag['file_size'] ? size_format( $diag['file_size'] ) : null,
+					'reasons_not_cached' => $diag['reasons_not_cached'],
+					'cached'             => $diag['file_exists'] && $diag['key_matches'],
+				);
+			}
+		}
+		
+		// Build HTML for the dialog.
+		ob_start();
+		foreach ( $diagnostics as $diag ) :
+		?>
+		<div class="nginx-diagnostics-variant">
+			<h4><?php echo esc_html( $diag['variant_label'] ); ?></h4>
+			
+			<div class="nginx-diagnostics-row">
+				<span class="nginx-diagnostics-label"><?php esc_html_e( 'Expected Key:', 'nginx-helper' ); ?></span>
+				<span class="nginx-diagnostics-value"><?php echo esc_html( $diag['expected_key'] ); ?></span>
+			</div>
+			
+			<div class="nginx-diagnostics-row">
+				<span class="nginx-diagnostics-label"><?php esc_html_e( 'Actual Key:', 'nginx-helper' ); ?></span>
+				<span class="nginx-diagnostics-value">
+					<?php if ( $diag['actual_key'] ) : ?>
+						<?php echo esc_html( $diag['actual_key'] ); ?>
+						<?php if ( $diag['key_matches'] ) : ?>
+							<span class="dashicons dashicons-yes-alt nginx-key-match"></span>
+						<?php else : ?>
+							<span class="dashicons dashicons-warning nginx-key-mismatch"></span>
+						<?php endif; ?>
+					<?php else : ?>
+						<em><?php esc_html_e( '(file not found)', 'nginx-helper' ); ?></em>
+					<?php endif; ?>
+				</span>
+			</div>
+			
+			<div class="nginx-diagnostics-row">
+				<span class="nginx-diagnostics-label"><?php esc_html_e( 'Cache File:', 'nginx-helper' ); ?></span>
+				<span class="nginx-diagnostics-value"><?php echo esc_html( $diag['expected_path'] ); ?></span>
+			</div>
+			
+			<div class="nginx-diagnostics-row">
+				<span class="nginx-diagnostics-label"><?php esc_html_e( 'File Exists:', 'nginx-helper' ); ?></span>
+				<span class="nginx-diagnostics-value">
+					<?php if ( $diag['file_exists'] ) : ?>
+						<?php esc_html_e( 'Yes', 'nginx-helper' ); ?> <span class="dashicons dashicons-yes-alt nginx-status-ok"></span>
+					<?php else : ?>
+						<?php esc_html_e( 'No', 'nginx-helper' ); ?> <span class="dashicons dashicons-dismiss nginx-status-error"></span>
+					<?php endif; ?>
+				</span>
+			</div>
+			
+			<?php if ( $diag['file_exists'] ) : ?>
+			<div class="nginx-diagnostics-row">
+				<span class="nginx-diagnostics-label"><?php esc_html_e( 'File Size:', 'nginx-helper' ); ?></span>
+				<span class="nginx-diagnostics-value"><?php echo esc_html( $diag['file_size'] ); ?></span>
+			</div>
+			
+			<div class="nginx-diagnostics-row">
+				<span class="nginx-diagnostics-label"><?php esc_html_e( 'Last Modified:', 'nginx-helper' ); ?></span>
+				<span class="nginx-diagnostics-value"><?php echo esc_html( $diag['file_mtime'] ); ?></span>
+			</div>
+			<?php endif; ?>
+			
+			<div class="nginx-diagnostics-row">
+				<span class="nginx-diagnostics-label"><?php esc_html_e( 'Status:', 'nginx-helper' ); ?></span>
+				<span class="nginx-diagnostics-value">
+					<?php if ( $diag['cached'] ) : ?>
+						<span class="nginx-diagnostics-status cached"><?php esc_html_e( 'CACHED', 'nginx-helper' ); ?></span>
+					<?php else : ?>
+						<span class="nginx-diagnostics-status not-cached"><?php esc_html_e( 'NOT CACHED', 'nginx-helper' ); ?></span>
+					<?php endif; ?>
+				</span>
+			</div>
+			
+			<?php if ( ! empty( $diag['reasons_not_cached'] ) ) : ?>
+			<div class="nginx-diagnostics-row">
+				<span class="nginx-diagnostics-label"><?php esc_html_e( 'Reason:', 'nginx-helper' ); ?></span>
+				<span class="nginx-diagnostics-value">
+					<?php echo esc_html( implode( ' ', $diag['reasons_not_cached'] ) ); ?>
+				</span>
+			</div>
+			<?php endif; ?>
+		</div>
+		<?php
+		endforeach;
+		$html = ob_get_clean();
+		
+		wp_send_json_success( array(
+			'diagnostics' => $diagnostics,
+			'html'        => $html,
+		) );
+	}
+
+	/**
+	 * AJAX handler: Scan for orphaned cache files.
+	 */
+	public function ajax_scan_orphaned_files() {
+		check_ajax_referer( 'nginx_helper_preload', 'nonce' );
+		
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( array( 'message' => __( 'Permission denied.', 'nginx-helper' ) ) );
+		}
+		
+		$manager = $this->get_preload_manager();
+		$orphaned = $manager->find_orphaned_cache_files( 200 );
+		$cache_root = $manager->get_cache_path_root();
+		
+		// Format the data for display.
+		$formatted = array();
+		foreach ( $orphaned as $file ) {
+			// Get relative path from cache root.
+			$relative_path = $file['path'];
+			if ( ! empty( $cache_root ) && 0 === strpos( $file['path'], $cache_root ) ) {
+				$relative_path = substr( $file['path'], strlen( $cache_root ) );
+				if ( 0 === strpos( $relative_path, '/' ) || 0 === strpos( $relative_path, '\\' ) ) {
+					$relative_path = substr( $relative_path, 1 );
+				}
+			}
+			
+			// Get URL path from key.
+			$url_path = isset( $file['url_path'] ) ? $file['url_path'] : null;
+			if ( null === $url_path && ! empty( $file['key'] ) ) {
+				$url_path = $manager->extract_url_from_key( $file['key'] );
+			}
+			
+			$formatted[] = array(
+				'key'           => $file['key'] ? $file['key'] : __( '(could not parse)', 'nginx-helper' ),
+				'path'          => $file['path'],
+				'relative_path' => $relative_path,
+				'url_path'      => $url_path ? $url_path : __( '(unknown)', 'nginx-helper' ),
+				'size'          => size_format( $file['size'] ),
+				'size_raw'      => $file['size'],
+				'date'          => date_i18n( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), $file['mtime'] ),
+				'date_raw'      => $file['mtime'],
+			);
+		}
+		
+		wp_send_json_success( array(
+			'orphaned' => $formatted,
+			'count'    => count( $formatted ),
+		) );
+	}
+	
 }

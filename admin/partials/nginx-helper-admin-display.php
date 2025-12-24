@@ -53,6 +53,9 @@ global $pagenow;
 						include plugin_dir_path( __FILE__ ) . 'easycache-cloudflare-options.php';
 						break;
 
+					case 'preload':
+						include plugin_dir_path( __FILE__ ) . 'nginx-helper-preload-options.php';
+						break;
 				}
 				?>
 			</div> <!-- End of #post-body-content -->

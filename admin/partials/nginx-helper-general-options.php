@@ -75,14 +75,51 @@ if ( isset( $all_inputs['smart_http_expire_save'] ) && wp_verify_nonce( $all_inp
 	unset( $all_inputs['smart_http_expire_save'] );
 	unset( $all_inputs['is_submit'] );
 
-	$nginx_settings = wp_parse_args(
-		$all_inputs,
-		$nginx_helper_admin->nginx_helper_default_settings()
-	);
-
+	// Get existing options to preserve settings from other tabs (e.g., Preload, Cloudflare).
 	$site_options = get_site_option( 'rt_wp_nginx_helper_options', array() );
 
-	foreach ( $nginx_helper_admin->nginx_helper_default_settings() as $default_setting_field => $default_setting_value ) {
+	// Define defaults ONLY for fields handled by this form (general options).
+	// This prevents overwriting settings from other tabs (Preload, Cloudflare) with defaults.
+	$general_options_defaults = array(
+		'enable_purge'                     => 0,
+		'cache_method'                     => 'enable_fastcgi',
+		'purge_method'                     => 'get_request',
+		'enable_map'                       => 0,
+		'enable_log'                       => 0,
+		'log_level'                        => 'INFO',
+		'log_filesize'                     => '5',
+		'enable_stamp'                     => 0,
+		'purge_homepage_on_edit'           => 1,
+		'purge_homepage_on_del'            => 1,
+		'purge_archive_on_edit'            => 1,
+		'purge_archive_on_del'             => 1,
+		'purge_archive_on_new_comment'     => 0,
+		'purge_archive_on_deleted_comment' => 0,
+		'purge_page_on_mod'                => 1,
+		'purge_page_on_new_comment'        => 1,
+		'purge_page_on_deleted_comment'    => 1,
+		'purge_feeds'                      => 1,
+		'redis_hostname'                   => '127.0.0.1',
+		'redis_port'                       => '6379',
+		'redis_prefix'                     => 'nginx-cache:',
+		'redis_unix_socket'                => '',
+		'redis_database'                   => 0,
+		'redis_username'                   => '',
+		'redis_password'                   => '',
+		'purge_url'                        => '',
+		'redis_enabled_by_constant'        => 0,
+		'purge_amp_urls'                   => 1,
+		'redis_socket_enabled_by_constant' => 0,
+		'redis_acl_enabled_by_constant'    => 0,
+		'preload_cache'                    => 0,
+		'is_cache_preloaded'               => 0,
+		'roles_with_purge_cap'             => array(),
+		'purge_woo_products'               => 0,
+	);
+
+	$nginx_settings = wp_parse_args( $all_inputs, $general_options_defaults );
+
+	foreach ( $general_options_defaults as $default_setting_field => $default_setting_value ) {
 
 		if ( 'roles_with_purge_cap' === $default_setting_field ) {
 
@@ -127,7 +164,10 @@ if ( isset( $all_inputs['smart_http_expire_save'] ) && wp_verify_nonce( $all_inp
 		$nginx_helper_admin->update_map();
 	}
 
-	update_site_option( 'rt_wp_nginx_helper_options', $nginx_settings );
+	// Merge: submitted general settings take priority, but preserve all other tab settings (Preload, Cloudflare).
+	$merged_settings = wp_parse_args( $nginx_settings, $site_options );
+
+	update_site_option( 'rt_wp_nginx_helper_options', $merged_settings );
 
 	echo '<div class="updated"><p>' . esc_html__( 'Settings saved.', 'nginx-helper' ) . '</p></div>';
 

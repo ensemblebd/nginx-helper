@@ -289,6 +289,32 @@ class Nginx_Helper {
 			$this->loader->add_action( 'updated_option', Cloudflare_Purger::get_instance(), 'action_updated_option' );
 		}
 
+		// Preload AJAX handlers.
+		$this->loader->add_action( 'wp_ajax_nginx_helper_preload_start', $nginx_helper_admin, 'ajax_preload_start' );
+		$this->loader->add_action( 'wp_ajax_nginx_helper_preload_stop', $nginx_helper_admin, 'ajax_preload_stop' );
+		$this->loader->add_action( 'wp_ajax_nginx_helper_preload_progress', $nginx_helper_admin, 'ajax_preload_progress' );
+		$this->loader->add_action( 'wp_ajax_nginx_helper_preload_single', $nginx_helper_admin, 'ajax_preload_single' );
+		$this->loader->add_action( 'wp_ajax_nginx_helper_toggle_page', $nginx_helper_admin, 'ajax_toggle_page' );
+		$this->loader->add_action( 'wp_ajax_nginx_helper_rescan_cache', $nginx_helper_admin, 'ajax_rescan_cache' );
+		$this->loader->add_action( 'wp_ajax_nginx_helper_preload_continue', $nginx_helper_admin, 'ajax_preload_continue' );
+		$this->loader->add_action( 'wp_ajax_nginx_helper_get_diagnostics', $nginx_helper_admin, 'ajax_get_url_diagnostics' );
+		$this->loader->add_action( 'wp_ajax_nginx_helper_scan_orphans', $nginx_helper_admin, 'ajax_scan_orphaned_files' );
+		
+		// Preload cron handlers.
+		$this->loader->add_action( 'nginx_helper_preload_batch', $nginx_helper_admin, 'handle_preload_batch' );
+		$this->loader->add_action( 'nginx_helper_preload_cron', $nginx_helper_admin, 'handle_cron_preload' );
+		
+		// Reactive mode hooks.
+		$this->loader->add_action( 'save_post', $nginx_helper_admin, 'preload_on_post_change', 100, 2 );
+		$this->loader->add_action( 'rt_nginx_helper_after_purge_all', $nginx_helper_admin, 'preload_after_purge_all', 20 );
+		$this->loader->add_action( 'rt_nginx_helper_after_fastcgi_purge_all', $nginx_helper_admin, 'preload_after_purge_all', 20 );
+		
+		// Preload admin notice.
+		$this->loader->add_action( 'admin_notices', $nginx_helper_admin, 'display_preload_notice' );
+		$this->loader->add_action( 'network_admin_notices', $nginx_helper_admin, 'display_preload_notice' );
+		
+		// Register custom cron schedule.
+		$this->loader->add_filter( 'cron_schedules', $this, 'add_preload_cron_schedule' );
 	}
 
 	/**
@@ -444,5 +470,84 @@ class Nginx_Helper {
 
 		return $headers;
 
+	}
+	
+	/**
+	 * Add custom cron schedule for preload.
+	 *
+	 * @param array $schedules Existing cron schedules.
+	 * @return array Modified schedules.
+	 */
+	public function add_preload_cron_schedule( $schedules ) {
+		$options = get_site_option( 'rt_wp_nginx_helper_options', array() );
+		$cron_schedule = isset( $options['preload_cron_schedule'] ) ? $options['preload_cron_schedule'] : '0 3 * * *';
+		
+		// Parse the cron schedule to calculate interval.
+		$interval = $this->parse_cron_to_interval( $cron_schedule );
+		
+		$schedules['nginx_helper_preload_interval'] = array(
+			'interval' => $interval,
+			'display'  => __( 'Nginx Helper Preload Interval', 'nginx-helper' ),
+		);
+		
+		return $schedules;
+	}
+	
+	/**
+	 * Parse a cron expression to calculate the interval in seconds.
+	 *
+	 * This is a simplified parser that handles common patterns.
+	 *
+	 * @param string $cron_expression The cron expression.
+	 * @return int Interval in seconds.
+	 */
+	private function parse_cron_to_interval( $cron_expression ) {
+		$parts = explode( ' ', trim( $cron_expression ) );
+		
+		// Default to daily (24 hours).
+		$interval = DAY_IN_SECONDS;
+		
+		if ( count( $parts ) >= 5 ) {
+			$minute = $parts[0];
+			$hour = $parts[1];
+			$day = $parts[2];
+			$month = $parts[3];
+			$weekday = $parts[4];
+			
+			// If minute is specific number (not *).
+			if ( '*' === $day && '*' === $month && '*' === $weekday ) {
+				// Daily cron.
+				$interval = DAY_IN_SECONDS;
+			} elseif ( '*' === $day && '*' === $month && '*' !== $weekday ) {
+				// Weekly cron.
+				$interval = WEEK_IN_SECONDS;
+			} elseif ( '*' !== $day && '*' === $month ) {
+				// Monthly cron.
+				$interval = 30 * DAY_IN_SECONDS;
+			}
+			
+			// Check for hourly pattern (minute is */X or specific, hour is *).
+			if ( '*' === $hour && '*' === $day ) {
+				if ( strpos( $minute, '*/' ) === 0 ) {
+					$mins = intval( substr( $minute, 2 ) );
+					if ( $mins > 0 ) {
+						$interval = $mins * MINUTE_IN_SECONDS;
+					}
+				} else {
+					// Every hour at specific minute.
+					$interval = HOUR_IN_SECONDS;
+				}
+			}
+			
+			// Check for every X hours pattern.
+			if ( strpos( $hour, '*/' ) === 0 ) {
+				$hours = intval( substr( $hour, 2 ) );
+				if ( $hours > 0 ) {
+					$interval = $hours * HOUR_IN_SECONDS;
+				}
+			}
+		}
+		
+		return $interval;
 	}
 }

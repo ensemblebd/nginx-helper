@@ -118,3 +118,660 @@ form#purgeall .button-primary:focus {
 .password-wrapper {
 	display: flex;
 }
+
+/* ========================================
+   Preload Feature Styles
+   ======================================== */
+
+/* Required field indicator */
+.required {
+	color: #dc3232;
+	font-weight: 600;
+}
+
+/* ========================================
+   Search & Filter Controls
+   ======================================== */
+.nginx-table-controls {
+	display: flex;
+	gap: 15px;
+	margin-bottom: 15px;
+	align-items: center;
+	flex-wrap: wrap;
+}
+
+.nginx-table-controls .search {
+	padding: 8px 12px;
+	border: 1px solid #8c8f94;
+	border-radius: 4px;
+	min-width: 250px;
+}
+
+.nginx-table-filters {
+	display: flex;
+	gap: 5px;
+}
+
+.nginx-table-filters .filter-btn {
+	padding: 6px 12px;
+	border: 1px solid #8c8f94;
+	background: #f0f0f1;
+	cursor: pointer;
+	border-radius: 3px;
+	transition: all 0.2s ease;
+}
+
+.nginx-table-filters .filter-btn:hover {
+	background: #e0e0e0;
+}
+
+.nginx-table-filters .filter-btn.active {
+	background: #2271b1;
+	color: #fff;
+	border-color: #2271b1;
+}
+
+/* ========================================
+   List.js Pagination
+   ======================================== */
+.pagination,
+.orphaned-pagination {
+	display: flex;
+	list-style: none;
+	padding: 0;
+	margin: 15px 0;
+	gap: 5px;
+}
+
+.pagination li,
+.orphaned-pagination li {
+	display: inline-block;
+}
+
+.pagination li a,
+.orphaned-pagination li a {
+	padding: 5px 10px;
+	border: 1px solid #8c8f94;
+	text-decoration: none;
+	color: #2271b1;
+	border-radius: 3px;
+	display: inline-block;
+	transition: all 0.2s ease;
+}
+
+.pagination li a:hover,
+.orphaned-pagination li a:hover {
+	background: #f0f0f1;
+}
+
+.pagination li.active a,
+.orphaned-pagination li.active a {
+	background: #2271b1;
+	color: #fff;
+	border-color: #2271b1;
+}
+
+/* ========================================
+   Progress bar
+   ======================================== */
+.nginx-preload-progress-banner {
+	margin-top: 15px;
+}
+
+.nginx-preload-progress-bar {
+	height: 20px;
+	background: #f0f0f1;
+	border-radius: 10px;
+	overflow: hidden;
+	margin: 10px 0;
+}
+
+.nginx-preload-progress-fill {
+	height: 100%;
+	background: linear-gradient(90deg, #2271b1, #135e96);
+	transition: width 0.3s ease;
+	border-radius: 10px;
+}
+
+/* ========================================
+   Status icons
+   ======================================== */
+.nginx-status-ok { color: #46b450; }
+.nginx-status-warning { color: #ffb900; }
+.nginx-status-error { color: #dc3232; }
+.nginx-key-match { color: #46b450; }
+.nginx-key-mismatch { color: #dc3232; }
+
+/* ========================================
+   Status message
+   ======================================== */
+.nginx-status-message {
+	margin-left: 10px;
+	font-style: italic;
+	color: #50575e;
+}
+
+/* ========================================
+   Preload Pages Table
+   ======================================== */
+.nginx-preload-pages-table .column-title {
+	width: 25%;
+}
+
+.nginx-preload-pages-table .column-url {
+	width: 30%;
+}
+
+.nginx-preload-pages-table .column-status {
+	width: 8%;
+	text-align: center;
+}
+
+.nginx-preload-pages-table .column-cache-date {
+	width: 17%;
+}
+
+.nginx-preload-pages-table .column-actions {
+	width: 20%;
+}
+
+.nginx-preload-pages-table .column-actions .button {
+	margin-right: 5px;
+}
+
+.nginx-preload-pages-table .column-actions .dashicons {
+	font-size: 16px;
+	width: 16px;
+	height: 16px;
+	line-height: 1;
+}
+
+.nginx-toggle-page {
+	display: inline-flex;
+	align-items: center;
+	gap: 3px;
+	font-size: 12px;
+}
+
+.nginx-variant-not-cached {
+	color: #999;
+	font-style: italic;
+}
+
+/* ========================================
+   Orphaned Files Table
+   ======================================== */
+.nginx-orphaned-files-table .column-key {
+	width: 35%;
+	word-break: break-all;
+}
+
+.nginx-orphaned-files-table .column-path {
+	width: 35%;
+	font-family: monospace;
+	font-size: 11px;
+	word-break: break-all;
+}
+
+.nginx-orphaned-files-table .column-size {
+	width: 10%;
+}
+
+.nginx-orphaned-files-table .column-date {
+	width: 20%;
+}
+
+/* ========================================
+   Diagnostics Dialog Content
+   ======================================== */
+.nginx-diagnostics-content {
+	font-size: 13px;
+}
+
+.nginx-diagnostics-content .loading {
+	text-align: center;
+	padding: 20px;
+	color: #666;
+}
+
+.nginx-diagnostics-variant {
+	border: 1px solid #c3c4c7;
+	border-radius: 4px;
+	padding: 15px;
+	margin-bottom: 15px;
+	background: #f9f9f9;
+}
+
+.nginx-diagnostics-variant:last-child {
+	margin-bottom: 0;
+}
+
+.nginx-diagnostics-variant h4 {
+	margin: 0 0 10px;
+	padding-bottom: 8px;
+	border-bottom: 1px solid #ddd;
+	font-size: 14px;
+	color: #1d2327;
+}
+
+.nginx-diagnostics-row {
+	display: flex;
+	margin-bottom: 8px;
+	align-items: flex-start;
+}
+
+.nginx-diagnostics-row:last-child {
+	margin-bottom: 0;
+}
+
+.nginx-diagnostics-label {
+	font-weight: 600;
+	min-width: 120px;
+	color: #50575e;
+	flex-shrink: 0;
+}
+
+.nginx-diagnostics-value {
+	word-break: break-all;
+	font-family: monospace;
+	font-size: 12px;
+	color: #1d2327;
+}
+
+.nginx-diagnostics-value .dashicons {
+	font-size: 16px;
+	width: 16px;
+	height: 16px;
+	vertical-align: middle;
+	margin-left: 5px;
+}
+
+.nginx-diagnostics-status {
+	padding: 3px 8px;
+	border-radius: 3px;
+	font-weight: 600;
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+	font-size: 12px;
+}
+
+.nginx-diagnostics-status.cached {
+	background: #d4edda;
+	color: #155724;
+}
+
+.nginx-diagnostics-status.not-cached {
+	background: #f8d7da;
+	color: #721c24;
+}
+
+/* ========================================
+   Sample cache path preview
+   ======================================== */
+.nginx-cache-path-preview {
+	background: #f6f7f7;
+	border: 1px solid #c3c4c7;
+	border-radius: 4px;
+	padding: 15px;
+	margin: 15px 0 0;
+}
+
+.nginx-cache-path-preview h4 {
+	margin: 0 0 10px;
+	font-size: 14px;
+	color: #1d2327;
+}
+
+.nginx-cache-path-preview .description {
+	margin-bottom: 15px;
+}
+
+.nginx-cache-path-preview .variant-block {
+	margin-bottom: 15px;
+	padding-bottom: 15px;
+	border-bottom: 1px dashed #ddd;
+	font-family: monospace;
+	font-size: 12px;
+	line-height: 1.8;
+}
+
+.nginx-cache-path-preview .variant-block:last-child {
+	margin-bottom: 0;
+	padding-bottom: 0;
+	border-bottom: none;
+}
+
+.nginx-cache-path-preview .variant-block strong {
+	display: block;
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+	margin-bottom: 5px;
+	color: #1d2327;
+}
+
+.nginx-cache-path-preview .label {
+	color: #50575e;
+	font-weight: 600;
+}
+
+.nginx-cache-path-preview code {
+	background: #e0e0e0;
+	padding: 2px 5px;
+	border-radius: 3px;
+}
+
+/* ========================================
+   Warnings & Notices
+   ======================================== */
+.nginx-path-warning {
+	background: #fcf0f1;
+	border-left: 4px solid #dc3232;
+	padding: 12px;
+	margin: 10px 0;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.nginx-path-warning .dashicons {
+	color: #dc3232;
+	flex-shrink: 0;
+}
+
+.nginx-path-accessible {
+	background: #edfaef;
+	border-left: 4px solid #46b450;
+	padding: 12px;
+	margin: 10px 0;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.nginx-path-accessible .dashicons {
+	color: #46b450;
+	flex-shrink: 0;
+}
+
+/* ========================================
+   jQuery UI Dialog Overrides
+   ======================================== */
+.ui-dialog.nginx-diagnostics-dialog {
+	max-height: 80vh;
+}
+
+.ui-dialog.nginx-diagnostics-dialog .ui-dialog-titlebar {
+	background: #f6f7f7;
+	border-bottom: 1px solid #c3c4c7;
+}
+
+.ui-dialog.nginx-diagnostics-dialog .ui-dialog-title {
+	font-weight: 600;
+}
+
+.ui-dialog.nginx-diagnostics-dialog .ui-dialog-content {
+	overflow-y: auto;
+	padding: 15px;
+}
+
+/* ========================================
+   jQuery UI Tabs Overrides
+   ======================================== */
+#nginx-preload-tabs {
+	border: none;
+	padding: 0;
+	background: none;
+}
+
+#nginx-preload-tabs .ui-tabs-nav {
+	padding: 0;
+	border: none;
+	background: none;
+	margin-bottom: 15px;
+	border-bottom: 1px solid #c3c4c7;
+}
+
+#nginx-preload-tabs .ui-tabs-nav li {
+	margin: 0 5px -1px 0;
+	border: 1px solid transparent;
+	border-bottom: none;
+	background: none;
+}
+
+#nginx-preload-tabs .ui-tabs-nav li a {
+	padding: 10px 15px;
+	color: #50575e;
+	font-weight: 500;
+}
+
+#nginx-preload-tabs .ui-tabs-nav li.ui-tabs-active {
+	border-color: #c3c4c7;
+	background: #fff;
+	border-radius: 4px 4px 0 0;
+}
+
+#nginx-preload-tabs .ui-tabs-nav li.ui-tabs-active a {
+	color: #1d2327;
+}
+
+#nginx-preload-tabs .ui-tabs-panel {
+	border: none;
+	padding: 0;
+	background: none;
+}
+
+/* ========================================
+   No items row
+   ======================================== */
+.no-items td {
+	text-align: center;
+	color: #666;
+	font-style: italic;
+	padding: 20px !important;
+}
+
+/* ========================================
+   Security Warning
+   ======================================== */
+.nginx-path-security-warning {
+	background: #fff3cd;
+	border-left: 4px solid #ffb900;
+	padding: 12px;
+	margin: 10px 0;
+	display: flex;
+	align-items: flex-start;
+	gap: 8px;
+	color: #856404;
+}
+
+.nginx-path-security-warning .dashicons {
+	color: #ffb900;
+	flex-shrink: 0;
+}
+
+.nginx-path-security-warning strong {
+	color: #856404;
+}
+
+/* ========================================
+   Source Badges
+   ======================================== */
+.nginx-source-badge {
+	display: inline-block;
+	padding: 2px 8px;
+	border-radius: 3px;
+	font-size: 11px;
+	font-weight: 500;
+	text-transform: uppercase;
+}
+
+.nginx-source-yoast {
+	background: #a4286a;
+	color: #fff;
+}
+
+.nginx-source-wordpress {
+	background: #0073aa;
+	color: #fff;
+}
+
+.nginx-source-database {
+	background: #666;
+	color: #fff;
+}
+
+.nginx-source-unknown {
+	background: #999;
+	color: #fff;
+}
+
+/* ========================================
+   Date Filters
+   ======================================== */
+.nginx-date-filters {
+	display: flex;
+	align-items: center;
+	gap: 5px;
+	margin-left: auto;
+}
+
+.nginx-date-filters .filter-label {
+	font-weight: 500;
+	color: #50575e;
+	margin-right: 5px;
+}
+
+.date-filter-btn {
+	padding: 4px 10px;
+	border: 1px solid #8c8f94;
+	background: #f0f0f1;
+	cursor: pointer;
+	border-radius: 3px;
+	font-size: 12px;
+	transition: all 0.2s ease;
+}
+
+.date-filter-btn:hover {
+	background: #e0e0e0;
+}
+
+.date-filter-btn.active {
+	background: #2271b1;
+	color: #fff;
+	border-color: #2271b1;
+}
+
+/* ========================================
+   Updated Table Columns - Discovered URLs
+   ======================================== */
+.nginx-preload-pages-table .column-source {
+	width: 8%;
+	text-align: center;
+}
+
+.nginx-preload-pages-table .column-enabled {
+	width: 6%;
+	text-align: center;
+}
+
+.nginx-preload-pages-table .column-title {
+	width: 22%;
+}
+
+.nginx-preload-pages-table .column-url {
+	width: 25%;
+}
+
+.nginx-preload-pages-table .column-cache-date {
+	width: 14%;
+}
+
+.nginx-preload-pages-table .column-actions {
+	width: 12%;
+}
+
+/* ========================================
+   Updated Table Columns - Orphaned Files
+   ======================================== */
+.nginx-orphaned-files-table .column-url-path {
+	width: 25%;
+}
+
+.nginx-orphaned-files-table .column-rel-path {
+	width: 30%;
+}
+
+.nginx-orphaned-files-table .column-rel-path code {
+	font-size: 11px;
+	word-break: break-all;
+	background: #f0f0f1;
+	padding: 2px 4px;
+	border-radius: 2px;
+}
+
+.nginx-orphaned-files-table .column-size {
+	width: 10%;
+}
+
+.nginx-orphaned-files-table .column-date {
+	width: 20%;
+}
+
+.nginx-orphaned-files-table .column-details {
+	width: 8%;
+	text-align: center;
+}
+
+.nginx-unknown-path {
+	color: #999;
+	font-style: italic;
+}
+
+/* ========================================
+   Orphan Details Dialog
+   ======================================== */
+.ui-dialog.nginx-orphan-details-dialog .ui-dialog-titlebar {
+	background: #f6f7f7;
+	border-bottom: 1px solid #c3c4c7;
+}
+
+.nginx-orphan-details-content {
+	font-size: 13px;
+}
+
+.nginx-orphan-detail-row {
+	margin-bottom: 12px;
+}
+
+.nginx-orphan-detail-row:last-child {
+	margin-bottom: 0;
+}
+
+.nginx-orphan-detail-label {
+	display: block;
+	font-weight: 600;
+	color: #50575e;
+	margin-bottom: 4px;
+}
+
+.nginx-orphan-detail-row code {
+	display: block;
+	word-break: break-all;
+	background: #f0f0f1;
+	padding: 8px;
+	border-radius: 4px;
+	font-size: 12px;
+}
+
+/* ========================================
+   Table Controls Responsive
+   ======================================== */
+.nginx-table-controls {
+	flex-wrap: wrap;
+}
+
+@media screen and (max-width: 1200px) {
+	.nginx-date-filters {
+		margin-left: 0;
+		margin-top: 10px;
+		width: 100%;
+	}
+}
