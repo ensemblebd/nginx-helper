@@ -100,6 +100,7 @@ class Predis_Purger extends Purger {
 
 		$this->log( '* * * * *' );
 
+		$this->cloudflare_purge_all();
 		/**
 		 * Fire an action after the Redis cache has been purged.
 		 *

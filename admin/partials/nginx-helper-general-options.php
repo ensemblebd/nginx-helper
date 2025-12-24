@@ -50,6 +50,11 @@ $args = array(
 	'preload_cache',
 	'roles_with_purge_cap',
 	'purge_woo_products'
+	'cloudflare_apo',
+	'cloudflare_apo_async',
+	'cloudflare_zone_id',
+	'cloudflare_api_token',
+	'cloudflare_ignore_urls',
 );
 
 $all_inputs = array();
@@ -170,6 +175,12 @@ if ( is_multisite() ) {
 					<td>
 						<input type="checkbox" value="1" id="preload_cache" name="preload_cache" <?php checked( $nginx_helper_settings['preload_cache'], 1 ); ?> />
 						<label for="preload_cache"><?php esc_html_e( 'Preload Cache', 'nginx-helper' ); ?></label>
+					</td>
+				</tr>
+				<tr valign="top">
+					<td>
+						<input type="checkbox" value="1" id="cloudflare_apo" name="cloudflare_apo" <?php checked( $nginx_helper_settings['cloudflare_apo'], 1 ); ?> />
+						<label for="cloudflare_apo" title="If you use Cloudflare caching, especially the APO (which caches page results; ie output of this plugin), you should enable this to trigger api calls to Cloudflare to notify it to purge the url's."><?php esc_html_e( 'Cloudflare APO', 'nginx-helper' ); ?></label>
 					</td>
 				</tr>
 			</table>
@@ -307,6 +318,50 @@ if ( is_multisite() ) {
 													array( 'strong' => array() )
 												);
 											?>
+										</small>
+									</label>
+									<br />
+								</fieldset>
+							</td>
+						</tr>
+					</table>
+					<table class="form-table rtnginx-table cloudflare_apo" style="display: none;">
+						<tr valign="top">
+							<td>
+								<fieldset>
+									<legend class="screen-reader-text">
+										<span>
+											&nbsp;
+											<?php esc_html_e( 'synchronize the Cloudflare APO when cache is purged.', 'nginx-helper' ); ?>
+										</span>
+									</legend>
+									<label for="cloudflare_apo_async">
+										<input type="checkbox" value="1" id="cloudflare_apo_async" name="cloudflare_apo_async" <?php checked( $nginx_helper_settings['cloudflare_apo_async'], 1 ); ?> />
+										&nbsp;
+										<?php esc_html_e( 'Asynchronous purge - if you do not care about logging, we can run the cloudflare purge in the background.', 'nginx-helper' ); ?>
+									</label>
+									<br />
+									<label for="cloudflare_zone_id">
+										<input type="text" value="<?php echo esc_attr( $nginx_helper_settings['cloudflare_zone_id'] ); ?>" id="cloudflare_zone_id" name="cloudflare_zone_id" />
+										<br />
+										<small>
+											<?php esc_html_e( 'The zone ID of the Cloudflare zone to purge. Required.', 'nginx-helper' ); ?>
+										</small>
+									</label>
+									<br />
+									<label for="cloudflare_api_token">
+										<input type="text" value="<?php echo esc_attr( $nginx_helper_settings['cloudflare_api_token'] ); ?>" id="cloudflare_api_token" name="cloudflare_api_token" />
+										<br />
+										<small>
+											<?php esc_html_e( 'The API token of the Cloudflare zone to purge. Must have the purge_cache capability.', 'nginx-helper' ); ?>
+										</small>
+									</label>
+									<br />
+									<label for="cloudflare_ignore_urls">
+										<input type="text" value="<?php echo esc_attr( $nginx_helper_settings['cloudflare_ignore_urls'] ); ?>" id="cloudflare_ignore_urls" name="cloudflare_ignore_urls" />
+										<br />
+										<small>
+											<?php esc_html_e( 'The URLs to ignore when purging Cloudflare cache. Separate with commas.', 'nginx-helper' ); ?>
 										</small>
 									</label>
 									<br />

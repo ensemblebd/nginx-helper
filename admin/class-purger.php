@@ -480,6 +480,10 @@ abstract class Purger {
 		if ( unlink( $cached_file ) ) {
 			$this->log( '- - ' . $url . ' *** PURGED ***' );
 
+			if ($this->cloudflare_enabled()) {
+				$this->cloudflare_purge($url);
+			}
+
 			/**
 			 * Fire an action after deleting file from cache.
 			 *
@@ -542,6 +546,10 @@ abstract class Purger {
 						$this->log( '- - ' . $url . ' not found ( ' . $response['response']['code'] . ' )', 'WARNING' );
 
 				}
+			}
+
+			if ($this->cloudflare_enabled()) {
+				$this->cloudflare_purge($url);
 			}
 
 			/**
@@ -1305,4 +1313,218 @@ abstract class Purger {
 		closedir( $dh );
 	}
 
+
+
+	
+
+	public function cloudflare_purge( $url ) {
+		global $nginx_helper_admin;
+		if (!$this->cloudflare_enabled()) return;
+
+		$default_ignore_urls = array('/feed', '/amp', '/wp-json');
+		$custom_ignore_urls = $nginx_helper_admin->options['cloudflare_ignore_urls'];
+		$ignore_urls = array_merge($default_ignore_urls, $custom_ignore_urls);
+
+		if ($this->cf_should_ignore_url($url, $ignore_urls)) return;
+		$zone_id = $this->cf_zone_id();
+		$api_token = $this->cf_api_token();
+
+		$url = str_replace( '/purge', '', $url );
+		if (cf_apo_available()) {
+			$cf = new \CF\WordPress\Hooks();
+			$post_id = url_to_postid($url);
+            if ($post_id) {
+                $cf->purgeCacheByRelevantURLs(array($post_id));
+                return;
+            }
+		}
+
+		// fallback on raw curl request..
+		cf_api_request( array(
+            'files' => array( esc_url_raw( $url ) ),
+        ), $api_token, $zone_id );
+	}
+	public function cloudflare_purge_all() {
+		global $nginx_helper_admin;
+		if (!$this->cloudflare_enabled()) return;
+		$zone_id = $this->cf_zone_id();
+		$api_token = $this->cf_api_token();
+
+		if (cf_apo_available()) {
+			$cf = new \CF\WordPress\Hooks();
+            $cf->purgeCacheEverything();
+			return;
+		}
+
+		// fallback on raw curl request..
+		cf_api_request( array( 'purge_everything' => true ), $api_token, $zone_id );
+	}
+
+
+
+	
+	public function cloudflare_enabled() {
+		global $nginx_helper_admin;
+		if (!$nginx_helper_admin->options['cloudflare_apo']) return false;
+
+		$zone_id = $this->cf_zone_id();
+		$api_token = $this->cf_api_token();
+		if (!$zone_id || !$api_token) return false;
+		
+		return true;
+	}
+	public function cf_apo_available() {
+		if (class_exists('\CF\WordPress\Hooks')) {
+			return true;
+		}
+	
+		// If not, check if plugin is installed and get its path
+		if (!function_exists('get_plugin_data')) {
+			require_once(ABSPATH . 'wp-admin/includes/plugin.php');
+		}
+		
+		$cloudflare_plugin_path = WP_PLUGIN_DIR . '/cloudflare/cloudflare.php';
+		
+		// Check if plugin exists
+		if (!file_exists($cloudflare_plugin_path)) {
+			return false;
+		}
+		
+		// Check if plugin is activated
+		if (!is_plugin_active('cloudflare/cloudflare.php')) {
+			return false;
+		}
+		
+		// If plugin exists but class isn't loaded, try to load the autoloader
+		$autoloader_path = WP_PLUGIN_DIR . '/cloudflare/vendor/autoload.php';
+		
+		if (!file_exists($autoloader_path)) {
+			return false;
+		}
+		
+		if (!class_exists('\CF\WordPress\Hooks')) {
+			require_once($autoloader_path);
+			
+			// Check if loading worked
+			if (class_exists('\CF\WordPress\Hooks')) {
+				return true;
+			}
+		}
+	}
+	protected function cf_zone_id() {
+		global $nginx_helper_admin;
+		// Try to get zone ID from Cloudflare plugin first
+		/* resource is protected. So this CANNOT be used. It will error.
+		if ( class_exists( '\CF\WordPress\Hooks' ) ) {
+			$cf = new \CF\WordPress\Hooks();
+			$wp_api = new \CF\WordPress\WordPressAPI($cf->dataStore);
+			$domains = $wp_api->getDomainList();
+			
+			if (!empty($domains)) {
+				$client_api = new \CF\WordPress\WordPressClientAPI($cf->integrationContext);
+				$zone_id = $client_api->getZoneTag($domains[0]);
+				if ($zone_id) {
+					return $zone_id;
+				}
+			}
+		}*/
+		
+		// Fall back to constant in options.
+		if ( $nginx_helper_admin->options['cloudflare_zone_id'] ) {
+			return $nginx_helper_admin->options['cloudflare_zone_id'];
+		}
+		else if (defined('NGX_CF_ZONE_ID')) {
+			return NGX_CF_ZONE_ID;
+		}
+		return null;
+	}
+	protected function cf_api_token() {
+		global $nginx_helper_admin;
+		// Try to get API token from Cloudflare plugin first
+		/* resource is protected. So this CANNOT be used. It will error.
+		if ( class_exists( '\CF\WordPress\Hooks' ) ) {
+			$cf = new \CF\WordPress\Hooks();
+			if ($cf->dataStore) {
+				$api_key = $cf->dataStore->getClientV4APIKey();
+				if ($api_key) {
+					return $api_key;
+				}
+			}
+		}*/
+		
+		// Fall back to constant in options.
+		if ( $nginx_helper_admin->options['cloudflare_api_token'] ) {
+			return $nginx_helper_admin->options['cloudflare_api_token'];
+		}
+		else if (defined('NGX_CF_TOKEN')) {
+			return NGX_CF_TOKEN;
+		}
+		return null;
+	}
+	/**
+	 * Check if a URL matches any of the ignore patterns using glob matching
+	 * 
+	 * @param string $url URL to check
+	 * @return bool True if URL should be ignored
+	 */
+	private function cf_should_ignore_url($url, $patterns) {
+		// Parse the URL to get just the path and ensure it starts with /
+		$path = parse_url($url, PHP_URL_PATH);
+		if (!$path) {
+			return false;
+		}
+		
+		// Ensure path starts with / and remove trailing /
+		$path = '/' . trim($path, '/');
+		
+		foreach ($patterns as $pattern) {
+			// Ensure pattern starts with / and prepare for regex
+			$pattern = '/' . trim($pattern, '/');
+			
+			// Convert glob pattern to regex, ensuring exact path matching
+			$regex = '#^' . str_replace(
+				array('*', '?', '#', '/'),
+				array('[^/]*', '[^/]', '\\#', '\\/'),
+				$pattern
+			) . '(/.*)?$#';
+			
+			// Check if path matches the pattern
+			if (preg_match($regex, $path)) {
+				return true;
+			}
+		}
+		
+		return false;
+	}
+
+	private function cf_api_request($payload, $token, $zone_id) {
+		global $nginx_helper_admin;
+		$use_async = $nginx_helper_admin->options['cloudflare_apo_async'];
+		// todo: perhaps make this configurable? And use mustache-style injection like {zone_id}?
+		$endpoint = 'https://api.cloudflare.com/client/v4/zones/' . $zone_id . '/purge_cache';
+		$timeout = 10; // todo: make this configurable?
+
+		$response = wp_remote_post(
+			$endpoint,
+			array(
+				'timeout' => $timeout,
+				'blocking' => !$use_async,
+				'headers' => array(
+					'Authorization' => 'Bearer ' . $token,
+					'Content-Type'  => 'application/json',
+				),
+				'body'    => wp_json_encode( $payload ),
+			)
+		);
+		if (!$use_async) {
+			// Log responses. blocking mode (non-async) means we have response data.
+			if ( is_wp_error( $response ) ) {
+				$this->log( 'Cloudflare Purge failed: ' . $response->get_error_message() , true);
+			} elseif ( empty( $response['response']['code'] ) || 200 !== (int) $response['response']['code'] ) {
+				$this->log( 'Cloudflare Purge returned HTTP ' . $response['response']['code'] . ' – body: ' . $response['body'] );
+			} else {
+				$this->log( 'Cloudflare Purge successful for payload: ' . wp_json_encode( $payload ) );
+			}
+		}
+	};
 }

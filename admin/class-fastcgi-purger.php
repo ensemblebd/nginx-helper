@@ -22,7 +22,7 @@ class FastCGI_Purger extends Purger {
 	 * Function to purge url.
 	 *
 	 * @param string $url URL.
-	 * @param bool   $feed Weather it is feed or not.
+	 * @param bool   $feed Whether it is feed or not.
 	 */
 	public function purge_url( $url, $feed = true ) {
 
@@ -243,6 +243,7 @@ class FastCGI_Purger extends Purger {
 		$this->log( '* Purged Everything!' );
 		$this->log( '* * * * *' );
 
+		$this->cloudflare_purge_all();
 		/**
 		 * Fire an action after the FastCGI cache has been purged.
 		 *
