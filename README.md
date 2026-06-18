@@ -9,7 +9,7 @@
 
 **Tested up to:** 6.8
 
-**Stable tag:** 2.3.5
+**Stable tag:** 2.3.9
 
 **License:** GPLv2 or later (of-course)
 
@@ -188,6 +188,37 @@ Please post your problem in [our free support forum](https://github.com/rtCamp/n
 ![Remaining settings](https://ps.w.org/nginx-helper/assets/screenshot-2.png)
 
 ## Changelog ##
+
+### 2.3.9 ###
+
+* Fix Enable Logging checkbox being permanently disabled in the admin UI when the database flag was 0. Logging can now be toggled directly from Settings → Nginx Helper without editing `wp-config.php`. The `NGINX_HELPER_LOG` constant is retained as a server-side override for hosting/CI environments.
+* Add log entries for admin settings saves, admin-initiated Purge All, toolbar Purge Current Page, and Cloudflare cache purge triggers — all previously silent at any log level.
+* Add comprehensive logging to the preload system (start, per-batch progress, completion, stop, reset, sitemap rescan, per-page HTTP errors). `Preload_Cache_Manager` previously wrote nothing to `nginx.log`.
+* Add cache file deletion count to the Purge All log entry when using the `get_request` (directory wipe) method, replacing the silent `unlink_recursive()` call.
+* Fix stale internal version constant in `class-nginx-helper.php` which had not been updated since 2.3.5.
+
+### 2.3.8 ###
+
+* Fix toolbar "Purge Current Page" leaving stale cache files on disk when a custom `fastcgi_cache_key` template is configured. `delete_cache_file_for()` previously relied on `Preload_Cache_Manager` already being in memory, which is not the case on front-end or REST API requests. The class is now explicitly required before use, ensuring all variant files (e.g. mobile/desktop) are correctly identified and deleted regardless of request context.
+* Fix reactive post-save cache warm generating a cached copy of pre-save page content. The warm `wp_remote_get()` was called synchronously inside the `save_post` hook, racing against object-cache propagation. The warm is now dispatched as a non-blocking async request (same pattern as the existing batch preload) so it only executes after the save request — and any associated caching layers — have fully settled.
+* Fix reactive warm silently skipping pages not yet registered in the preload snapshot (e.g. a newly-published page that has never been rescanned). `reset_page()` now accepts an optional fallback full URL so the purge-and-warm cycle fires for any published post, whether or not it is in the snapshot.
+
+### 2.3.7 ###
+
+* Fix the per-page reset button silently doing nothing: `reset_page()` now deletes the existing cache file for every variant before making the warm request. Without the delete, nginx serves the already-cached response directly and never calls PHP, so the cache file is never updated despite the snapshot showing a fresh timestamp.
+* Fix the reset button always marking a row as green regardless of whether the re-warm actually succeeded. The JS callback now reads per-variant `cached` flags from the AJAX response and reflects the real state: fully cached, partially cached, or not cached.
+* Fix the Status column incorrectly showing "Partially cached" when all current variants are cached. Stale variant entries (e.g. a leftover `default` key from when "Cache all variants" was unchecked, or old scheme-prefixed keys from before "Force SSL" was enabled) were being carried forward in the snapshot and counted as uncached variants. `sync_sitemap_to_snapshot()` now resets the variants dict for each page before repopulating it, so only the current configuration's variants contribute to the status.
+
+### 2.3.6 ###
+
+* Fix custom cache key variables (e.g. `$device_type`) appearing as raw literals in sample cache path previews, diagnostics, and cache status checks when the "Cache all variants" option is unchecked. Introduced `get_display_variant_combinations()` which resolves variants for display/verification independently of the preload checkbox.
+* Fix cache status table always reporting pages as uncached when custom variables are present in the key template but "Cache all variants" is unchecked.
+* Fix `delete_cache_file_for()` in the FastCGI purger using a hardcoded default key formula, ignoring the configured `fastcgi_cache_key` template and custom variable variants. All variant files (mobile, desktop, etc.) are now correctly purged on post publish/update.
+* Fix orphan detection building known-paths list with wrong hashes when custom variables were unresolved.
+* Add prominent admin error notice on the Preload tab when the cache key template contains custom variables but "Cache all variants" is unchecked, clearly identifying the affected variables by name.
+* Add inline warning under each detected custom variable input when no possible values have been configured yet.
+* Add cache file hash(es) and paths to the `Cached using Nginx-Helper` HTML comment in page source, showing one entry per configured variant for easy manual cache lookup.
+* Fix all timestamps in the Preload tab (last scan, cache dates, diagnostics, orphan file dates) displaying in UTC instead of the WordPress site timezone. Replaced `date_i18n()` calls with `wp_date()` throughout.
 
 ### 2.3.5 ###
 

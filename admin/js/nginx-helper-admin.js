@@ -451,13 +451,39 @@
 				$btn.prop('disabled', false);
 
 				if (response.success) {
-					// Update row status visually.
-					$row.find('.status')
-						.removeClass('not-cached partial')
-						.addClass('cached');
-					$row.find('.status .dashicons')
-						.removeClass('dashicons-dismiss dashicons-warning nginx-status-error nginx-status-warning')
-						.addClass('dashicons-yes-alt nginx-status-ok');
+					// Determine actual cached status from per-variant results.
+					var data = response.data || {};
+					var variantKeys = Object.keys(data);
+					var cachedCount = 0;
+					var totalCount = variantKeys.length;
+
+					variantKeys.forEach(function(key) {
+						if (data[key] && data[key].cached) {
+							cachedCount++;
+						}
+					});
+
+					// Derive status: all cached → cached, none → not-cached, mixed → partial.
+					var newStatus, newIcon, removeStatuses, removeIcons;
+					if (totalCount === 0 || cachedCount === totalCount) {
+						newStatus    = 'cached';
+						newIcon      = 'dashicons-yes-alt nginx-status-ok';
+						removeStatuses = 'not-cached partial';
+						removeIcons  = 'dashicons-dismiss dashicons-warning nginx-status-error nginx-status-warning';
+					} else if (cachedCount === 0) {
+						newStatus    = 'not-cached';
+						newIcon      = 'dashicons-dismiss nginx-status-error';
+						removeStatuses = 'cached partial';
+						removeIcons  = 'dashicons-yes-alt dashicons-warning nginx-status-ok nginx-status-warning';
+					} else {
+						newStatus    = 'partial';
+						newIcon      = 'dashicons-warning nginx-status-warning';
+						removeStatuses = 'cached not-cached';
+						removeIcons  = 'dashicons-yes-alt dashicons-dismiss nginx-status-ok nginx-status-error';
+					}
+
+					$row.find('.status').removeClass(removeStatuses).addClass(newStatus);
+					$row.find('.status .dashicons').removeClass(removeIcons).addClass(newIcon);
 				}
 			}).fail(function(xhr, status, error) {
 				console.error('Reset page AJAX failed:', status, error);

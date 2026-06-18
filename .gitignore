@@ -13,3 +13,4 @@ tests/functional/node_modules/
 selenium-*.jar
 vendor
 .vscode/
+/.cursor/plans

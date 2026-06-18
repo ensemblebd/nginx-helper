@@ -112,6 +112,27 @@ $cache_key_configured = ! empty( $nginx_helper_settings['fastcgi_cache_key_templ
 <div class="updated"><p><?php esc_html_e( 'Preload settings saved.', 'nginx-helper' ); ?></p></div>
 <?php endif; ?>
 
+<?php if ( ! empty( $custom_vars ) && empty( $nginx_helper_settings['preload_cache_variants'] ) ) : ?>
+<div class="notice notice-error">
+	<p>
+		<strong><?php esc_html_e( 'Cache Variant Warning:', 'nginx-helper' ); ?></strong>
+		<?php
+		$var_labels = array_map(
+			function ( $v ) {
+				return '<code>$' . esc_html( $v ) . '</code>';
+			},
+			$custom_vars
+		);
+		printf(
+			/* translators: %s: comma-separated list of detected custom variable names with $ prefix */
+			esc_html__( 'Your cache key template contains custom variable(s): %s. The "Cache all variants" option is currently unchecked. Cache key previews, diagnostics, and status checks cannot substitute these variables and will show incorrect literal values. Check the "Cache all variants" option and configure possible values for each variable below.', 'nginx-helper' ),
+			implode( ', ', $var_labels ) // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+		);
+		?>
+	</p>
+</div>
+<?php endif; ?>
+
 <!-- Preload Progress Banner -->
 <div id="nginx-preload-progress-banner" class="notice notice-info nginx-preload-progress-banner" style="<?php echo 'running' !== $preload_progress['status'] ? 'display:none;' : ''; ?>">
 	<p>
@@ -259,13 +280,13 @@ $cache_key_configured = ! empty( $nginx_helper_settings['fastcgi_cache_key_templ
 								<span class="dashicons dashicons-yes-alt"></span>
 								<?php esc_html_e( 'Cache directory is accessible by PHP.', 'nginx-helper' ); ?>
 							</p>
-							<?php if ( ! empty( $cache_path_status['security_warning'] ) ) : ?>
-							<p class="nginx-path-security-warning">
-								<span class="dashicons dashicons-shield-alt"></span>
-								<strong><?php esc_html_e( 'Security Warning:', 'nginx-helper' ); ?></strong>
-								<?php echo esc_html( $cache_path_status['security_warning'] ); ?>
-							</p>
-							<?php endif; ?>
+						<?php if ( ! empty( $cache_path_status['security_warning'] ) && 'unlink_files' !== ( $nginx_helper_settings['purge_method'] ?? '' ) ) : ?>
+						<p class="nginx-path-security-warning">
+							<span class="dashicons dashicons-shield-alt"></span>
+							<strong><?php esc_html_e( 'Security Warning:', 'nginx-helper' ); ?></strong>
+							<?php echo esc_html( $cache_path_status['security_warning'] ); ?>
+						</p>
+						<?php endif; ?>
 						<?php else : ?>
 							<p class="nginx-path-warning">
 								<span class="dashicons dashicons-warning"></span>
@@ -284,16 +305,22 @@ $cache_key_configured = ! empty( $nginx_helper_settings['fastcgi_cache_key_templ
 				<tr valign="top">
 					<th scope="row"><?php esc_html_e( 'Detected Custom Variables', 'nginx-helper' ); ?></th>
 					<td>
-						<?php foreach ( $custom_vars as $var_name ) : ?>
-						<div class="nginx-custom-var-row" style="margin-bottom: 10px;">
-							<code>$<?php echo esc_html( $var_name ); ?></code>
-							<br />
-							<label>
-								<?php esc_html_e( 'Possible values (CSV):', 'nginx-helper' ); ?>
-								<input type="text" name="fastcgi_custom_var[<?php echo esc_attr( $var_name ); ?>]" value="<?php echo esc_attr( isset( $custom_var_values[ $var_name ] ) ? $custom_var_values[ $var_name ] : '' ); ?>" class="regular-text" placeholder="<?php esc_attr_e( 'e.g., mobile,desktop', 'nginx-helper' ); ?>" />
-							</label>
-						</div>
-						<?php endforeach; ?>
+					<?php foreach ( $custom_vars as $var_name ) : ?>
+					<div class="nginx-custom-var-row" style="margin-bottom: 10px;">
+						<code>$<?php echo esc_html( $var_name ); ?></code>
+						<br />
+						<label>
+							<?php esc_html_e( 'Possible values (CSV):', 'nginx-helper' ); ?>
+							<input type="text" name="fastcgi_custom_var[<?php echo esc_attr( $var_name ); ?>]" value="<?php echo esc_attr( isset( $custom_var_values[ $var_name ] ) ? $custom_var_values[ $var_name ] : '' ); ?>" class="regular-text" placeholder="<?php esc_attr_e( 'e.g., mobile,desktop', 'nginx-helper' ); ?>" />
+						</label>
+						<?php if ( empty( $custom_var_values[ $var_name ] ) ) : ?>
+						<p class="nginx-path-warning">
+							<span class="dashicons dashicons-warning"></span>
+							<?php esc_html_e( 'No values configured — cache keys containing this variable cannot be resolved. Sample preview and cache status will be inaccurate until values are saved.', 'nginx-helper' ); ?>
+						</p>
+						<?php endif; ?>
+					</div>
+					<?php endforeach; ?>
 						<p class="description"><?php esc_html_e( 'These non-standard variables were detected in your cache key template. Enter comma-separated possible values for each.', 'nginx-helper' ); ?></p>
 					</td>
 				</tr>
@@ -341,7 +368,7 @@ $cache_key_configured = ! empty( $nginx_helper_settings['fastcgi_cache_key_templ
 			printf(
 				/* translators: %s: last scan date */
 				esc_html__( 'Last scan: %s', 'nginx-helper' ),
-				esc_html( date_i18n( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), strtotime( $snapshot['last_scan'] ) ) )
+				esc_html( wp_date( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), strtotime( $snapshot['last_scan'] ) ) )
 			);
 			?>
 		</p>
@@ -493,7 +520,7 @@ $cache_key_configured = ! empty( $nginx_helper_settings['fastcgi_cache_key_templ
 								</td>
 								<td class="cache-date" data-timestamp="<?php echo esc_attr( $latest_cache_timestamp ); ?>">
 									<?php if ( ! empty( $latest_cache_date ) ) : ?>
-										<?php echo esc_html( date_i18n( 'M j, Y H:i', strtotime( $latest_cache_date ) ) ); ?>
+										<?php echo esc_html( wp_date( 'M j, Y H:i', strtotime( $latest_cache_date ) ) ); ?>
 									<?php else : ?>
 										<span class="nginx-variant-not-cached"><?php esc_html_e( 'Never', 'nginx-helper' ); ?></span>
 									<?php endif; ?>

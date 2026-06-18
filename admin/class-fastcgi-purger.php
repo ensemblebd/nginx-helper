@@ -235,7 +235,8 @@ class FastCGI_Purger extends Purger {
 				// Go to default case.
 
 			default:
-				$this->unlink_recursive( RT_WP_NGINX_HELPER_CACHE_PATH, false );
+				$deleted_count = $this->unlink_recursive( RT_WP_NGINX_HELPER_CACHE_PATH, false );
+				$this->log( 'Cache directory cleared: ' . $deleted_count . ' file(s) deleted' );
 				break;
 		}
 

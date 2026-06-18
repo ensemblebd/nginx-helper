@@ -659,13 +659,43 @@ class Nginx_Helper_Admin {
 			return;
 		}
 
-		$timestamps = "\n<!--" .
-			'Cached using Nginx-Helper on ' . current_time( 'mysql' ) . '. ' .
-			'It took ' . get_num_queries() . ' queries executed in ' . timer_stop() . ' seconds.' .
-			"-->\n" .
-			'<!--Visit http://wordpress.org/extend/plugins/nginx-helper/faq/ for more details-->';
+	$timestamps = "\n<!--" .
+		'Cached using Nginx-Helper on ' . current_time( 'mysql' ) . '. ' .
+		'It took ' . get_num_queries() . ' queries executed in ' . timer_stop() . ' seconds.' .
+		"-->\n" .
+		'<!--Visit http://wordpress.org/extend/plugins/nginx-helper/faq/ for more details-->';
 
-		echo wp_kses( $timestamps, array() );
+	// Append cache file hash info when a template is configured.
+	if ( class_exists( 'Preload_Cache_Manager' ) ) {
+		$manager  = Preload_Cache_Manager::get_instance();
+		$template = $manager->get_cache_key_template();
+		if ( ! empty( $template ) ) {
+			$scheme      = is_ssl() ? 'https' : 'http';
+			$host        = isset( $_SERVER['HTTP_HOST'] ) ? $_SERVER['HTTP_HOST'] : wp_parse_url( home_url(), PHP_URL_HOST );
+			$request_uri = isset( $_SERVER['REQUEST_URI'] ) ? $_SERVER['REQUEST_URI'] : '/';
+			$current_url = $scheme . '://' . $host . $request_uri;
+
+			$variants    = $manager->get_display_variant_combinations();
+			$hash_parts  = array();
+
+			foreach ( $variants as $variant_values ) {
+				$cache_key = $manager->build_cache_key( $current_url, $variant_values );
+				$hash      = md5( $cache_key );
+				$path      = $manager->build_cache_path( $cache_key );
+
+				if ( count( $variants ) > 1 ) {
+					$variant_label = $manager->get_variant_key( $variant_values );
+					$hash_parts[]  = $variant_label . ': ' . $hash . ' (' . $path . ')';
+				} else {
+					$hash_parts[] = $hash . ' (' . $path . ')';
+				}
+			}
+
+			$timestamps .= "\n<!--Cache file hash(es): " . implode( ' | ', $hash_parts ) . '-->';
+		}
+	}
+
+	echo wp_kses( $timestamps, array() );
 
 	}
 
@@ -919,9 +949,11 @@ class Nginx_Helper_Admin {
 
 		switch ( $action ) {
 			case 'purge':
+				$nginx_purger->log( 'Purge All initiated by: ' . wp_get_current_user()->user_login );
 				$nginx_purger->purge_all();
 				break;
 			case 'purge_current_page':
+				$nginx_purger->log( 'Purge current page from toolbar: ' . $current_url );
 				$nginx_purger->purge_url( $current_url );
 				break;
 		}
@@ -937,7 +969,8 @@ class Nginx_Helper_Admin {
 
 		}
 
-		if( $this->cf_options['is_enabled'] ) {
+		if ( $this->cf_options['is_enabled'] ) {
+			$nginx_purger->log( 'Cloudflare purge triggered alongside cache purge' );
 			Cloudflare_Client::purgeEverything();
 		}
 
@@ -1594,24 +1627,72 @@ class Nginx_Helper_Admin {
 		if ( wp_is_post_autosave( $post_id ) || wp_is_post_revision( $post_id ) ) {
 			return;
 		}
-		
+
 		// Only published posts.
 		if ( 'publish' !== $post->post_status ) {
 			return;
 		}
-		
+
 		$manager = $this->get_preload_manager();
-		
+
 		// Only in reactive mode.
 		if ( 'reactive' !== $manager->get_preload_mode() ) {
 			return;
 		}
-		
-		$url = get_permalink( $post_id );
+
+		$url          = get_permalink( $post_id );
 		$relative_url = $manager->get_relative_url( $url );
-		
-		// Preload all variants for this page.
-		$manager->reset_page( $relative_url );
+
+		// Defer the warm to a non-blocking async request so it fires after the
+		// current save request completes and the DB write is fully visible to
+		// any object-cache or read-replica layers.
+		$this->trigger_async_single_warm( $relative_url, $url );
+	}
+
+	/**
+	 * Dispatch a non-blocking async request to warm a single page's variant
+	 * cache files. The request completes independently of the current process,
+	 * so it always sees the fully-committed post data.
+	 *
+	 * @param string $relative_url Site-root-relative URL, e.g. /my-page/.
+	 * @param string $full_url     Absolute URL, e.g. https://example.com/my-page/.
+	 */
+	private function trigger_async_single_warm( $relative_url, $full_url ) {
+		$args = array(
+			'timeout'   => 0.01,
+			'blocking'  => false,
+			'sslverify' => false,
+			'body'      => array(
+				'action'       => 'nginx_helper_reactive_warm_single',
+				'nonce'        => wp_create_nonce( 'nginx_helper_reactive_warm' ),
+				'relative_url' => $relative_url,
+				'full_url'     => $full_url,
+			),
+		);
+		wp_remote_post( admin_url( 'admin-ajax.php' ), $args );
+	}
+
+	/**
+	 * AJAX handler: warm all variant cache files for a single page.
+	 *
+	 * Called asynchronously by trigger_async_single_warm() after a post is
+	 * saved. Because the request is non-blocking from the caller's perspective,
+	 * it always runs after the save transaction is complete.
+	 */
+	public function ajax_reactive_warm_single() {
+		check_ajax_referer( 'nginx_helper_reactive_warm', 'nonce' );
+
+		$relative_url = isset( $_POST['relative_url'] ) ? sanitize_text_field( wp_unslash( $_POST['relative_url'] ) ) : '';
+		$full_url     = isset( $_POST['full_url'] )     ? esc_url_raw( wp_unslash( $_POST['full_url'] ) )            : '';
+
+		if ( empty( $relative_url ) || empty( $full_url ) ) {
+			wp_send_json_error( 'Missing parameters.' );
+		}
+
+		$manager = $this->get_preload_manager();
+		$manager->reset_page( $relative_url, $full_url );
+
+		wp_send_json_success();
 	}
 	
 	/**
@@ -1691,7 +1772,7 @@ class Nginx_Helper_Admin {
 		
 		$manager = $this->get_preload_manager();
 		$full_url = home_url( $url );
-		$variants = $manager->get_all_variant_combinations();
+		$variants = $manager->get_display_variant_combinations();
 		$force_ssl = ! empty( $this->options['preload_force_ssl'] );
 		
 		$diagnostics = array();
@@ -1715,7 +1796,7 @@ class Nginx_Helper_Admin {
 					'file_exists'        => $diag['file_exists'],
 					'actual_key'         => $diag['actual_key'],
 					'key_matches'        => $diag['key_matches'],
-					'file_mtime'         => $diag['file_mtime'] ? date_i18n( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), $diag['file_mtime'] ) : null,
+					'file_mtime'         => $diag['file_mtime'] ? wp_date( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), $diag['file_mtime'] ) : null,
 					'file_size'          => $diag['file_size'] ? size_format( $diag['file_size'] ) : null,
 					'reasons_not_cached' => $diag['reasons_not_cached'],
 					'cached'             => $diag['file_exists'] && $diag['key_matches'],
@@ -1848,7 +1929,7 @@ class Nginx_Helper_Admin {
 				'url_path'      => $url_path ? $url_path : __( '(unknown)', 'nginx-helper' ),
 				'size'          => size_format( $file['size'] ),
 				'size_raw'      => $file['size'],
-				'date'          => date_i18n( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), $file['mtime'] ),
+				'date'          => wp_date( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), $file['mtime'] ),
 				'date_raw'      => $file['mtime'],
 			);
 		}

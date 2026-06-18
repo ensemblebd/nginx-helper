@@ -80,7 +80,7 @@ class Nginx_Helper {
 	public function __construct() {
 
 		$this->plugin_name = 'nginx-helper';
-		$this->version     = '2.3.5';
+		$this->version     = '2.3.9';
 		$this->minimum_wp  = '3.0';
 
 		if ( ! $this->required_wp_version() ) {
@@ -299,6 +299,11 @@ class Nginx_Helper {
 		$this->loader->add_action( 'wp_ajax_nginx_helper_preload_continue', $nginx_helper_admin, 'ajax_preload_continue' );
 		$this->loader->add_action( 'wp_ajax_nginx_helper_get_diagnostics', $nginx_helper_admin, 'ajax_get_url_diagnostics' );
 		$this->loader->add_action( 'wp_ajax_nginx_helper_scan_orphans', $nginx_helper_admin, 'ajax_scan_orphaned_files' );
+		// Async single-page warm — fired by the reactive post-save path.
+		// wp_ajax_nopriv_ is required because the request is dispatched from a
+		// server-side PHP process with no logged-in browser session.
+		$this->loader->add_action( 'wp_ajax_nginx_helper_reactive_warm_single', $nginx_helper_admin, 'ajax_reactive_warm_single' );
+		$this->loader->add_action( 'wp_ajax_nopriv_nginx_helper_reactive_warm_single', $nginx_helper_admin, 'ajax_reactive_warm_single' );
 		
 		// Preload cron handlers.
 		$this->loader->add_action( 'nginx_helper_preload_batch', $nginx_helper_admin, 'handle_preload_batch' );

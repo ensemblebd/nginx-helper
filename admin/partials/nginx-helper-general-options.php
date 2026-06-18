@@ -169,6 +169,17 @@ if ( isset( $all_inputs['smart_http_expire_save'] ) && wp_verify_nonce( $all_inp
 
 	update_site_option( 'rt_wp_nginx_helper_options', $merged_settings );
 
+	global $nginx_purger;
+	if ( isset( $nginx_purger ) ) {
+		$nginx_purger->log(
+			'Settings saved by: ' . wp_get_current_user()->user_login
+			. ' | enable_purge=' . (int) $merged_settings['enable_purge']
+			. ' | cache_method=' . $merged_settings['cache_method']
+			. ' | enable_log=' . (int) $merged_settings['enable_log']
+			. ' | log_level=' . $merged_settings['log_level']
+		);
+	}
+
 	echo '<div class="updated"><p>' . esc_html__( 'Settings saved.', 'nginx-helper' ) . '</p></div>';
 
 }
@@ -899,47 +910,12 @@ if ( is_multisite() ) {
 				<?php } ?>
 					<tr valign="top">
 						<td>
-							<?php
-							$is_checkbox_enabled = false;
-							if ( 1 === (int) $nginx_helper_settings['enable_log'] ) {
-								$is_checkbox_enabled = true;
-							}
-							?>
 							<input
 								type="checkbox" value="1" id="enable_log" name="enable_log"
 								<?php checked( $nginx_helper_admin->is_nginx_log_enabled(), true ); ?>
-								<?php echo esc_attr( $is_checkbox_enabled ? '' : ' disabled ' ); ?>
 							/>
 							<label for="enable_log">
 								<?php esc_html_e( 'Enable Logging', 'nginx-helper' ); ?>
-								<?php
-								if ( ! $is_checkbox_enabled ) {
-
-									$setting_message_detail = [
-										'status' => __( 'disable', 'nginx-helper' ),
-										'value'  => 'false',
-									];
-
-									if ( ! $nginx_helper_admin->is_nginx_log_enabled() ) {
-										$setting_message_detail = [
-											'status' => __( 'enable', 'nginx-helper' ),
-											'value'  => 'true',
-										];
-									}
-
-									printf(
-										'<p class="enable-logging-message">(%s)</p>',
-										sprintf(
-											wp_kses_post(
-												/* translators: %1$s: status to change to (enable or disable), %2$s: bool value to set the NGINX_HELPER_LOG as (true or false) */
-												__( '<strong>NOTE:</strong> To %1$s the logging feature, you must define the <strong>NGINX_HELPER_LOG</strong> constant as <strong>%2$s</strong> in your <strong>wp-config.php</strong> file', 'nginx-helper' )
-											),
-											esc_html( $setting_message_detail['status'] ),
-											esc_html( $setting_message_detail['value'] )
-										)
-									);
-								}
-								?>
 							</label>
 						</td>
 					</tr>

@@ -446,52 +446,93 @@ abstract class Purger {
 
 		}
 
-		// Build a hash of the URL.
-		$url_path = isset( $url_data['path'] ) ? $url_data['path'] : '';
-		$hash = md5( $url_data['scheme'] . 'GET' . $url_data['host'] . $url_path );
-
-		// Ensure trailing slash.
+		// Ensure trailing slash on cache root.
 		$cache_path = RT_WP_NGINX_HELPER_CACHE_PATH;
 		$cache_path = ( '/' === substr( $cache_path, -1 ) ) ? $cache_path : $cache_path . '/';
 
-		// Set path to cached file.
-		$cached_file = $cache_path . substr( $hash, -1 ) . '/' . substr( $hash, -3, 2 ) . '/' . $hash;
-
-		/**
-		 * Filters the cached file name.
-		 *
-		 * @since 2.1.0
-		 * @since 2.2.3 Purge URL argument `$url` were added.
-		 *
-		 * @param string $cached_file Cached file name.
-		 * @param string $url         URL to be purged.
-		 */
-		$cached_file = apply_filters( 'rt_nginx_helper_purge_cached_file', $cached_file, $url );
-
-		// Verify cached file exists.
-		if ( ! file_exists( $cached_file ) ) {
-
-			$this->log( '- - ' . $url . ' is currently not cached ( checked for file: ' . $cached_file . ' )' );
-			return false;
-
+		// Use the configured cache key template and variant combinations when available
+		// so that custom variables (e.g. $device_type) produce the correct hashes for
+		// all variant files (mobile, desktop, etc.). Falls back to the legacy hardcoded
+		// default nginx key when no template is configured.
+		//
+		// Actively require the manager here rather than relying on class_exists(), because
+		// this method is called from front-end contexts (toolbar purge) and REST API
+		// contexts (Gutenberg post save) where nothing else has loaded the class yet.
+		if ( ! class_exists( 'Preload_Cache_Manager' ) ) {
+			$pcm_path = dirname( __FILE__ ) . '/class-preload-cache-manager.php';
+			if ( file_exists( $pcm_path ) ) {
+				require_once $pcm_path;
+			}
+		}
+		if ( class_exists( 'Preload_Cache_Manager' ) ) {
+			$manager  = Preload_Cache_Manager::get_instance();
+			$template = $manager->get_cache_key_template();
+		} else {
+			$manager  = null;
+			$template = '';
 		}
 
-		// Delete the cached file.
-		if ( unlink( $cached_file ) ) {
-			$this->log( '- - ' . $url . ' *** PURGED ***' );
+		if ( ! empty( $template ) && null !== $manager ) {
+			$variants = $manager->get_display_variant_combinations();
+		} else {
+			$variants = array( array() );
+		}
+
+		$any_purged = false;
+
+		foreach ( $variants as $variant_values ) {
+
+			if ( ! empty( $template ) && null !== $manager ) {
+				$cache_key   = $manager->build_cache_key( $url, $variant_values );
+				$hash        = md5( $cache_key );
+			} else {
+				// Legacy fallback: default nginx key without custom variables.
+				$url_path = isset( $url_data['path'] ) ? $url_data['path'] : '';
+				$hash     = md5( $url_data['scheme'] . 'GET' . $url_data['host'] . $url_path );
+			}
+
+			// Set path to cached file.
+			$cached_file = $cache_path . substr( $hash, -1 ) . '/' . substr( $hash, -3, 2 ) . '/' . $hash;
 
 			/**
-			 * Fire an action after deleting file from cache.
+			 * Filters the cached file name.
 			 *
 			 * @since 2.1.0
+			 * @since 2.2.3 Purge URL argument `$url` were added.
 			 *
-			 * @param string $url         URL to be purged.
 			 * @param string $cached_file Cached file name.
+			 * @param string $url         URL to be purged.
 			 */
-			do_action( 'rt_nginx_helper_purged_file', $url, $cached_file );
-		} else {
-			$this->log( '- - An error occurred deleting the cache file. Check the server logs for a PHP warning.', 'ERROR' );
+			$cached_file = apply_filters( 'rt_nginx_helper_purge_cached_file', $cached_file, $url );
+
+			// Verify cached file exists.
+			if ( ! file_exists( $cached_file ) ) {
+
+				$this->log( '- - ' . $url . ' is currently not cached ( checked for file: ' . $cached_file . ' )' );
+				continue;
+
+			}
+
+			// Delete the cached file.
+			if ( unlink( $cached_file ) ) {
+				$this->log( '- - ' . $url . ' *** PURGED ***' );
+				$any_purged = true;
+
+				/**
+				 * Fire an action after deleting file from cache.
+				 *
+				 * @since 2.1.0
+				 *
+				 * @param string $url         URL to be purged.
+				 * @param string $cached_file Cached file name.
+				 */
+				do_action( 'rt_nginx_helper_purged_file', $url, $cached_file );
+			} else {
+				$this->log( '- - An error occurred deleting the cache file. Check the server logs for a PHP warning.', 'ERROR' );
+			}
 		}
+
+		return $any_purged;
 
 	}
 
@@ -1269,22 +1310,24 @@ abstract class Purger {
 	 * Unlink file recursively.
 	 * Source - http://stackoverflow.com/a/1360437/156336
 	 *
-	 * @param string $dir Directory.
+	 * @param string $dir             Directory.
 	 * @param bool   $delete_root_too Delete root or not.
 	 *
-	 * @return void
+	 * @return int Number of files deleted.
 	 */
 	public function unlink_recursive( $dir, $delete_root_too ) {
 
 		if ( ! is_dir( $dir ) ) {
-			return;
+			return 0;
 		}
 
 		$dh = opendir( $dir );
 
 		if ( ! $dh ) {
-			return;
+			return 0;
 		}
+
+		$deleted = 0;
 
 		// phpcs:ignore -- WordPress.CodeAnalysis.AssignmentInCondition.FoundInWhileCondition -- Variable assignment required for recursion.
 		while ( false !== ( $obj = readdir( $dh ) ) ) {
@@ -1293,8 +1336,10 @@ abstract class Purger {
 				continue;
 			}
 
-			if ( ! @unlink( $dir . '/' . $obj ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
-				$this->unlink_recursive( $dir . '/' . $obj, false );
+			if ( @unlink( $dir . '/' . $obj ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+				$deleted++;
+			} else {
+				$deleted += $this->unlink_recursive( $dir . '/' . $obj, false );
 			}
 		}
 
@@ -1303,6 +1348,8 @@ abstract class Purger {
 		}
 
 		closedir( $dh );
+
+		return $deleted;
 	}
 
 }

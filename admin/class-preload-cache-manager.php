@@ -68,6 +68,19 @@ class Preload_Cache_Manager {
 	}
 
 	/**
+	 * Write a message to the nginx-helper log via the global purger instance.
+	 *
+	 * @param string $msg   Message to log.
+	 * @param string $level Log level: INFO, WARNING, or ERROR.
+	 */
+	private function log( $msg, $level = 'INFO' ) {
+		global $nginx_purger;
+		if ( isset( $nginx_purger ) ) {
+			$nginx_purger->log( '[Preload] ' . $msg, $level );
+		}
+	}
+
+	/**
 	 * Get the cache key template.
 	 *
 	 * Uses plugin settings only. This is a mandatory field.
@@ -249,7 +262,7 @@ class Preload_Cache_Manager {
 
 		// Build list of known cache paths from snapshot.
 		if ( ! empty( $snapshot['pages'] ) ) {
-			$variants = $this->get_all_variant_combinations();
+			$variants = $this->get_display_variant_combinations();
 			foreach ( $snapshot['pages'] as $relative_url => $page_data ) {
 				$full_url = isset( $page_data['full_url'] ) ? $page_data['full_url'] : home_url( $relative_url );
 				foreach ( $variants as $variant_values ) {
@@ -349,7 +362,7 @@ class Preload_Cache_Manager {
 			return $paths;
 		}
 
-		$variants = $this->get_all_variant_combinations();
+		$variants = $this->get_display_variant_combinations();
 		$force_ssl = ! empty( $this->options['preload_force_ssl'] );
 
 		// Determine schemes to show.
@@ -470,6 +483,47 @@ class Preload_Cache_Manager {
 					$new_combo = $combo;
 					$new_combo[ $var_name ] = $value;
 					$new_combinations[] = $new_combo;
+				}
+			}
+			$combinations = $new_combinations;
+		}
+
+		return $combinations;
+	}
+
+	/**
+	 * Get all variant combinations for display/verification purposes.
+	 *
+	 * Unlike get_all_variant_combinations(), this method always builds the cartesian
+	 * product from configured custom variable values regardless of whether the
+	 * "Cache all variants" (preload_cache_variants) checkbox is enabled. Used by
+	 * sample preview, diagnostics, cache status checks, and orphan detection — none
+	 * of which should be gated on the preloading preference.
+	 *
+	 * @return array Array of variant value arrays (each a var_name => value map).
+	 */
+	public function get_display_variant_combinations() {
+		$custom_vars = $this->get_custom_key_variables();
+
+		if ( empty( $custom_vars ) ) {
+			return array( array() );
+		}
+
+		$combinations = array( array() );
+
+		foreach ( $custom_vars as $var_name ) {
+			$values = $this->get_variant_values( $var_name );
+
+			if ( empty( $values ) ) {
+				continue;
+			}
+
+			$new_combinations = array();
+			foreach ( $combinations as $combo ) {
+				foreach ( $values as $value ) {
+					$new_combo              = $combo;
+					$new_combo[ $var_name ] = $value;
+					$new_combinations[]     = $new_combo;
 				}
 			}
 			$combinations = $new_combinations;
@@ -886,7 +940,7 @@ class Preload_Cache_Manager {
 	public function sync_sitemap_to_snapshot() {
 		$pages = $this->get_all_pages();
 		$snapshot = $this->get_snapshot();
-		$variants = $this->get_all_variant_combinations();
+		$variants = $this->get_display_variant_combinations();
 
 		$existing_pages = isset( $snapshot['pages'] ) ? $snapshot['pages'] : array();
 		$new_pages = array();
@@ -902,6 +956,10 @@ class Preload_Cache_Manager {
 				$new_pages[ $relative_url ]['title'] = $page['title'];
 				$new_pages[ $relative_url ]['url'] = $relative_url;
 				$new_pages[ $relative_url ]['source'] = $source;
+				// Reset variants so stale entries from previous configurations
+				// (e.g. a leftover 'default' key from when the checkbox was unchecked,
+				// or old scheme-prefixed keys) cannot pollute the status calculation.
+				$new_pages[ $relative_url ]['variants'] = array();
 			} else {
 				$new_pages[ $relative_url ] = array(
 					'title'    => $page['title'],
@@ -934,6 +992,8 @@ class Preload_Cache_Manager {
 
 		$snapshot['pages'] = $new_pages;
 		$snapshot['last_scan'] = gmdate( 'c' );
+
+		$this->log( 'Sitemap rescan complete: found ' . count( $new_pages ) . ' URL(s)' );
 
 		return $this->save_snapshot( $snapshot );
 	}
@@ -1034,6 +1094,7 @@ class Preload_Cache_Manager {
 
 		if ( is_wp_error( $response ) ) {
 			$result['error'] = $response->get_error_message();
+			$this->log( 'Preload request failed for ' . $url . ' | ' . $result['error'], 'ERROR' );
 			return $result;
 		}
 
@@ -1046,6 +1107,8 @@ class Preload_Cache_Manager {
 
 			$cache_status = $this->check_cache_file( $url, $variant_values );
 			$result['cached'] = $cache_status['exists'];
+		} else {
+			$this->log( 'Preload got HTTP ' . $result['status_code'] . ' for ' . $url, 'WARNING' );
 		}
 
 		return $result;
@@ -1100,6 +1163,12 @@ class Preload_Cache_Manager {
 			$snapshot['total_items'] = $total_items;
 			$snapshot['processed_items'] = 0;
 			$this->save_snapshot( $snapshot );
+
+			$this->log(
+				'Preload started: ' . $total_pages . ' page(s), '
+				. count( $variants ) . ' variant(s), '
+				. $total_items . ' total item(s)'
+			);
 		}
 
 		// Check if already completed.
@@ -1123,7 +1192,7 @@ class Preload_Cache_Manager {
 
 				// Skip if already processed in this run.
 				$variant_data = isset( $page_data['variants'][ $variant_key ] ) ? $page_data['variants'][ $variant_key ] : array();
-				
+
 				// Check if we should skip based on progress.
 				if ( $processed < $snapshot['processed_items'] ) {
 					$processed++;
@@ -1158,6 +1227,10 @@ class Preload_Cache_Manager {
 				if ( $batch_processed >= $batch_size ) {
 					$snapshot['current_batch']++;
 					$this->save_snapshot( $snapshot );
+					$this->log(
+						'Batch ' . $snapshot['current_batch'] . ' of ' . $snapshot['total_batches']
+						. ' complete | processed ' . $snapshot['processed_items'] . ' of ' . $snapshot['total_items'] . ' item(s)'
+					);
 					return $this->get_preload_progress();
 				}
 			}
@@ -1167,6 +1240,11 @@ class Preload_Cache_Manager {
 		$snapshot['preload_status'] = 'completed';
 		$snapshot['current_url'] = null;
 		$this->save_snapshot( $snapshot );
+
+		$this->log(
+			'Preload completed: ' . count( $snapshot['pages'] ) . ' page(s), '
+			. count( $variants ) . ' variant(s)'
+		);
 
 		return $this->get_preload_progress();
 	}
@@ -1198,6 +1276,7 @@ class Preload_Cache_Manager {
 		$snapshot = $this->get_snapshot();
 		$snapshot['preload_status'] = 'stopped';
 		$snapshot['current_url'] = null;
+		$this->log( 'Preload stopped | processed ' . ( isset( $snapshot['processed_items'] ) ? $snapshot['processed_items'] : 0 ) . ' of ' . ( isset( $snapshot['total_items'] ) ? $snapshot['total_items'] : 0 ) . ' item(s)' );
 		return $this->save_snapshot( $snapshot );
 	}
 
@@ -1214,6 +1293,7 @@ class Preload_Cache_Manager {
 		$snapshot['current_url'] = null;
 		$snapshot['processed_items'] = 0;
 		$snapshot['total_items'] = 0;
+		$this->log( 'Preload reset to idle' );
 		return $this->save_snapshot( $snapshot );
 	}
 
@@ -1241,35 +1321,68 @@ class Preload_Cache_Manager {
 	 * @param string $relative_url The relative URL.
 	 * @return array Results for each variant.
 	 */
-	public function reset_page( $relative_url ) {
-		$snapshot = $this->get_snapshot();
-		$results = array();
+	/**
+	 * Reset (purge + warm) all variant cache files for a single page.
+	 *
+	 * When $fallback_full_url is supplied the method proceeds even if the page
+	 * is not yet registered in the preload snapshot (e.g. a freshly-published
+	 * post that has never been scanned). In that case the snapshot is not
+	 * updated, because there is no snapshot entry to write back to.
+	 *
+	 * @param string      $relative_url      Site-root-relative URL, e.g. /blog/my-post/.
+	 * @param string|null $fallback_full_url  Full absolute URL to use when the page is
+	 *                                        absent from the snapshot. Optional.
+	 * @return array Per-variant result arrays keyed by variant key.
+	 */
+	public function reset_page( $relative_url, $fallback_full_url = null ) {
+		$snapshot  = $this->get_snapshot();
+		$results   = array();
+		$in_snapshot = isset( $snapshot['pages'][ $relative_url ] );
 
-		if ( ! isset( $snapshot['pages'][ $relative_url ] ) ) {
+		if ( $in_snapshot ) {
+			$page_data = $snapshot['pages'][ $relative_url ];
+			$full_url  = isset( $page_data['full_url'] ) ? $page_data['full_url'] : home_url( $relative_url );
+		} elseif ( ! empty( $fallback_full_url ) ) {
+			$full_url  = $fallback_full_url;
+		} else {
 			return $results;
 		}
 
-		$page_data = $snapshot['pages'][ $relative_url ];
-		$full_url = isset( $page_data['full_url'] ) ? $page_data['full_url'] : home_url( $relative_url );
-		$variants = $this->get_all_variant_combinations();
+		$variants = $this->get_display_variant_combinations();
 
 		foreach ( $variants as $variant_values ) {
 			$variant_key = $this->get_variant_key( $variant_values );
+
+			// Delete the existing cache file before making the warm request.
+			// If the file is left on disk, nginx serves the cached response directly
+			// without calling PHP, so the cache file is never updated and the
+			// subsequent check_cache_file() finds the old stale entry.
+			$cache_key  = $this->build_cache_key( $full_url, $variant_values );
+			$cache_path = $this->build_cache_path( $cache_key );
+			if ( file_exists( $cache_path ) ) {
+				// phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+				@unlink( $cache_path );
+			}
+
 			$result = $this->preload_single_page( $full_url, $variant_values );
 
-			$snapshot['pages'][ $relative_url ]['variants'][ $variant_key ] = array(
-				'cached'           => $result['cached'],
-				'cache_date'       => $result['cached'] ? gmdate( 'c' ) : null,
-				'status_code'      => $result['status_code'],
-				'response_time_ms' => $result['response_time_ms'],
-				'variant_values'   => $variant_values,
-				'error'            => $result['error'],
-			);
+			if ( $in_snapshot ) {
+				$snapshot['pages'][ $relative_url ]['variants'][ $variant_key ] = array(
+					'cached'           => $result['cached'],
+					'cache_date'       => $result['cached'] ? gmdate( 'c' ) : null,
+					'status_code'      => $result['status_code'],
+					'response_time_ms' => $result['response_time_ms'],
+					'variant_values'   => $variant_values,
+					'error'            => $result['error'],
+				);
+			}
 
 			$results[ $variant_key ] = $result;
 		}
 
-		$this->save_snapshot( $snapshot );
+		if ( $in_snapshot ) {
+			$this->save_snapshot( $snapshot );
+		}
 
 		return $results;
 	}
